@@ -98,7 +98,11 @@ public class ArticlesController : ControllerBase
 
 A request with `Accept: application/vnd.api+json` gets back a JSON:API-shaped response; a
 request with `Content-Type: application/vnd.api+json` has its body deserialized automatically. A
-malformed body produces a `400 Bad Request` rather than an unhandled exception.
+malformed body, validation failures, and unhandled exceptions all map to JSON:API error documents
+too, when the client negotiated `application/vnd.api+json` — see
+[Error documents](_docs/aspnetcore-integration.md#error-documents) for the negotiation-aware
+default, the `MapErrorsAlways()` override, and the one extra `app.UseExceptionHandler()` call
+required for unhandled-exception mapping.
 
 `AddJsonApi()` defaults to **convention-based** mapping (the opposite default from
 `new JsonApiSerializer()` above) — call `AddJsonApi(options => options.UseAttributes())` for

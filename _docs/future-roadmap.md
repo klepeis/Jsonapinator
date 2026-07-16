@@ -51,11 +51,15 @@ has a natural seam in the current architecture:
 see [`aspnetcore-integration.md`](aspnetcore-integration.md)) intentionally stays scoped to
 format conversion. Deferred from that pass, not yet built:
 
-- **Validation-failure and unhandled-exception → JSON:API error document mapping.** ASP.NET
-  Core's built-in `ModelState` validation failures and unhandled exceptions currently produce
-  ASP.NET Core's default `ProblemDetails` responses, not `ErrorObject`/JSON:API-shaped error
-  documents. Would need `ProblemDetails`-factory customization and/or exception-handling
-  middleware that calls `JsonApiSerializer.SerializeErrors`.
+- ~~**Validation-failure and unhandled-exception → JSON:API error document mapping.**~~ — **done.**
+  `AddJsonApi()` replaces `ApiBehaviorOptions.InvalidModelStateResponseFactory` and registers
+  `JsonApiExceptionHandler` (an `IExceptionHandler`) to map invalid `ModelState` (400) and
+  unhandled exceptions (500, generic detail only — never the real exception message) to JSON:API
+  error documents. Negotiation-aware by default (`Accept: application/vnd.api+json` required, else
+  ASP.NET Core's normal `ProblemDetails` is preserved); `options.MapErrorsAlways()` forces it
+  regardless. Unhandled-exception mapping additionally requires `app.UseExceptionHandler()` in
+  `Program.cs` — registering the DI service alone doesn't wire it into the pipeline. See
+  [`aspnetcore-integration.md`](aspnetcore-integration.md#error-documents).
 - **Strict content-negotiation parameter rejection.** The JSON:API spec requires rejecting
   `Content-Type`/`Accept` values that include media-type parameters (415/406) — `TextInputFormatter`/
   `TextOutputFormatter` don't give this for free; it would need `CanWriteResult` overrides and/or

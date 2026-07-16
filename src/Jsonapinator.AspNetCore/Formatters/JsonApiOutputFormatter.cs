@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text;
+using Jsonapinator.AspNetCore.ErrorHandling;
 using Microsoft.AspNetCore.Mvc.Formatters;
 
 namespace Jsonapinator.AspNetCore.Formatters;
@@ -36,9 +37,12 @@ public sealed class JsonApiOutputFormatter : TextOutputFormatter
 
     public override async Task WriteResponseBodyAsync(OutputFormatterWriteContext context, Encoding selectedEncoding)
     {
-        var json = context.Object is IEnumerable enumerable and not string
-            ? _serializer.SerializeCollection(enumerable)
-            : _serializer.Serialize(context.Object!);
+        var json = context.Object switch
+        {
+            JsonApiErrorsPayload errors => _serializer.SerializeErrors(errors.Errors),
+            IEnumerable enumerable and not string => _serializer.SerializeCollection(enumerable),
+            _ => _serializer.Serialize(context.Object!),
+        };
 
         var response = context.HttpContext.Response;
         await using var writer = context.WriterFactory(response.Body, selectedEncoding);

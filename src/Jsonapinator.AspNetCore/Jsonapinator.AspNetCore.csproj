@@ -15,4 +15,8 @@
     <ProjectReference Include="..\Jsonapinator\Jsonapinator.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Jsonapinator.AspNetCore.Tests" />
+  </ItemGroup>
+
 </Project>

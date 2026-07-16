@@ -31,4 +31,19 @@ public sealed class JsonApiFormatterOptions
         ConventionMapping = false;
         return this;
     }
+
+    internal bool AlwaysMapErrors { get; private set; }
+
+    /// <summary>
+    /// Always map invalid-<c>ModelState</c> responses and unhandled exceptions to JSON:API error
+    /// documents, regardless of whether the client's <c>Accept</c> header actually negotiated
+    /// <c>application/vnd.api+json</c>. Default is off — negotiation-aware, meaning the mapping
+    /// only kicks in when the client asked for it; otherwise ASP.NET Core's normal
+    /// <c>ProblemDetails</c>/exception behavior is preserved.
+    /// </summary>
+    public JsonApiFormatterOptions MapErrorsAlways()
+    {
+        AlwaysMapErrors = true;
+        return this;
+    }
 }

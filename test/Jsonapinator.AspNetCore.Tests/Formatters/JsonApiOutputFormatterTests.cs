@@ -1,8 +1,10 @@
 using System.Reflection;
 using System.Text;
 using Jsonapinator;
+using Jsonapinator.AspNetCore.ErrorHandling;
 using Jsonapinator.AspNetCore.Formatters;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Formatters;
 
@@ -87,5 +89,20 @@ public class JsonApiOutputFormatterTests
         var json = new StreamReader(body, Encoding.UTF8).ReadToEnd();
         var roundTripped = new JsonApiSerializer().DeserializeCollection<Article>(json);
         Assert.Equal(2, roundTripped.Count);
+    }
+
+    [Fact]
+    public async Task WriteResponseBodyAsync_writes_an_errors_document_for_a_JsonApiErrorsPayload()
+    {
+        var payload = new JsonApiErrorsPayload(new List<ErrorObject> { new() { Status = "400", Title = "Validation Failed" } });
+        using var body = new MemoryStream();
+        var context = CreateContext(payload, typeof(JsonApiErrorsPayload), body);
+
+        await _formatter.WriteResponseBodyAsync(context, Encoding.UTF8);
+
+        body.Position = 0;
+        var json = new StreamReader(body, Encoding.UTF8).ReadToEnd();
+        Assert.Contains("\"errors\"", json);
+        Assert.DoesNotContain("\"data\"", json);
     }
 }

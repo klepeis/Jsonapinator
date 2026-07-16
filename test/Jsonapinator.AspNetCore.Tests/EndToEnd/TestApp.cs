@@ -26,6 +26,9 @@ public sealed class TestArticlesController : ControllerBase
 
     [HttpPost]
     public TestArticle Post([FromBody] TestArticle article) => article;
+
+    [HttpGet("boom")]
+    public TestArticle GetBoom() => throw new InvalidOperationException("some sensitive internal detail");
 }
 
 public class TestProgram
@@ -36,6 +39,7 @@ public class TestProgram
         builder.Services.AddControllers().AddJsonApi(options => options.UseAttributes());
 
         var app = builder.Build();
+        app.UseExceptionHandler(); // required for JsonApiExceptionHandler to actually run
         app.MapControllers();
         app.Run();
     }

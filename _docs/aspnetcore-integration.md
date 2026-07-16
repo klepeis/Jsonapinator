@@ -19,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers().AddJsonApi();
 
 var app = builder.Build();
+app.UseExceptionHandler(); // required for unhandled exceptions to map to JSON:API errors — see "Error documents" below
 app.MapControllers();
 app.Run();
 ```
@@ -85,18 +86,47 @@ declared id type, etc.), `JsonApiInputFormatter` catches the resulting
 `Jsonapinator.Exceptions.JsonApiMappingException`, adds a model state error, and returns
 `InputFormatterResult.Failure()` — the same convention ASP.NET Core's own JSON input formatter
 uses, so `[ApiController]`'s automatic invalid-model-state behavior produces a `400 Bad Request`
-with zero extra wiring.
+with zero extra wiring. Whether the *body* of that 400 is a JSON:API errors document or ASP.NET
+Core's default `ProblemDetails` is covered next.
 
 **Known gap**: a body that's valid JSON but the wrong *shape* for the action (e.g. a JSON:API
 array posted to an action expecting a single resource) currently surfaces as an unhandled 500
 rather than a 400 — `JsonApiSerializer.Deserialize`/`Deserialize<T>` assume `document.Data` is a
 single resource without checking, in core `Jsonapinator`. See `future-roadmap.md`.
 
+## Error documents
+
+`AddJsonApi()` automatically maps two error conditions to JSON:API `{"errors":[...]}` documents
+(`ErrorObject`/`SerializeErrors`):
+
+- **Invalid `ModelState`** (e.g. the malformed-body case above) — `400`, one `ErrorObject` per
+  individual validation error, `Source.Pointer` best-effort derived from the `ModelState` key
+  (e.g. key `"Title"` → `/data/attributes/title`; an empty key, the common case for whole-body
+  `[FromBody]` binding, → `/data`). This is a best-effort convention — it won't produce a valid
+  pointer for nested/indexed keys (e.g. `"Comments[0].Body"`).
+- **Unhandled exceptions** — `500`, a single generic `ErrorObject` (`"An unexpected error
+  occurred."`). The real exception message/stack trace is **never** included in the response
+  body, regardless of environment — it's still logged in full server-side via `ILogger`.
+
+**By default, both are negotiation-aware**: they only produce a JSON:API error document when the
+client's `Accept` header actually included `application/vnd.api+json`; otherwise ASP.NET Core's
+normal `ProblemDetails` response is preserved untouched. Force JSON:API errors regardless of what
+was negotiated with:
+
+```csharp
+builder.Services.AddControllers().AddJsonApi(options => options.MapErrorsAlways());
+```
+
+**Unhandled-exception mapping requires one extra step**: `AddJsonApi()` can only register
+`JsonApiExceptionHandler` as a DI service (`IExceptionHandler`) — it cannot wire it into the
+application pipeline, since that requires `IApplicationBuilder`, only available after
+`builder.Build()`. You must call `app.UseExceptionHandler();` yourself (as shown in Setup above);
+without it, `JsonApiExceptionHandler` is registered but never runs. Invalid-`ModelState` mapping
+does **not** need this — it's wired through `ApiBehaviorOptions.InvalidModelStateResponseFactory`,
+which `AddJsonApi()` can configure directly.
+
 ## Known limitations
 
-- Validation-failure and unhandled-exception → JSON:API error document mapping (`ErrorObject`,
-  `SerializeErrors`) is not automatic — this package only handles successful request/response
-  body conversion. See `future-roadmap.md`.
 - The JSON:API spec's requirement to reject `Content-Type`/`Accept` values that include media-type
   parameters (415/406) isn't enforced — the bare `application/vnd.api+json` media type is
   registered and matched by ASP.NET Core's normal content negotiation. See `future-roadmap.md`.

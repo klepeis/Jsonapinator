@@ -1,8 +1,14 @@
 using Jsonapinator;
 using Jsonapinator.AspNetCore;
+using Jsonapinator.AspNetCore.ErrorHandling;
 using Jsonapinator.AspNetCore.Formatters;
 using Jsonapinator.Attributes;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -113,5 +119,48 @@ public class JsonApiMvcBuilderExtensionsTests
         var json = serializer.Serialize(new PlainArticle { Id = "1", Title = "Hello" });
 
         Assert.Contains("\"title\":\"Hello\"", json);
+    }
+
+    [Fact]
+    public void AddJsonApi_registers_the_JsonApiFormatterOptions_singleton()
+    {
+        var services = new ServiceCollection();
+        services.AddControllers().AddJsonApi();
+        var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<JsonApiFormatterOptions>());
+    }
+
+    [Fact]
+    public void AddJsonApi_configures_InvalidModelStateResponseFactory_to_produce_json_api_errors_when_negotiated()
+    {
+        var services = new ServiceCollection();
+        services.AddControllers().AddJsonApi();
+        var provider = services.BuildServiceProvider();
+        var apiOptions = provider.GetRequiredService<IOptions<ApiBehaviorOptions>>().Value;
+
+        var httpContext = new DefaultHttpContext();
+        httpContext.Request.Headers.Accept = "application/vnd.api+json";
+        var modelState = new ModelStateDictionary();
+        modelState.AddModelError("Title", "Title is required.");
+        var actionContext = new ActionContext(httpContext, new RouteData(), new ActionDescriptor(), modelState);
+
+        var result = Assert.IsType<ObjectResult>(apiOptions.InvalidModelStateResponseFactory!(actionContext));
+
+        Assert.Equal(400, result.StatusCode);
+        Assert.IsType<JsonApiErrorsPayload>(result.Value);
+    }
+
+    [Fact]
+    public void AddJsonApi_registers_JsonApiExceptionHandler_as_an_IExceptionHandler()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddControllers().AddJsonApi();
+        var provider = services.BuildServiceProvider();
+
+        var handlers = provider.GetRequiredService<IEnumerable<IExceptionHandler>>();
+
+        Assert.Contains(handlers, h => h is JsonApiExceptionHandler);
     }
 }
