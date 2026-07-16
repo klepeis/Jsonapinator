@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Jsonapinator.Attributes;
 using Jsonapinator.Deserialization;
 using Jsonapinator.Document;
@@ -24,6 +25,18 @@ public class ResourceMapperTests
 
         [JsonApiRelationship("comments", RelationshipKind.ToMany)]
         public List<Comment> Comments { get; set; } = new();
+
+        [JsonApiMeta]
+        public MetaObject? ResourceMeta { get; set; }
+
+        [JsonApiLinks]
+        public LinksObject? ResourceLinks { get; set; }
+
+        [JsonApiRelationshipMeta("comments")]
+        public MetaObject? CommentsMeta { get; set; }
+
+        [JsonApiRelationshipLinks("comments")]
+        public LinksObject? CommentsLinks { get; set; }
     }
 
     [JsonApiResource("people")]
@@ -50,6 +63,36 @@ public class ResourceMapperTests
 
         [JsonApiRelationship("article", RelationshipKind.ToOne)]
         public Article? Article { get; set; }
+    }
+
+    [JsonApiResource("chain-nodes")]
+    private sealed class ChainNode
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("next", RelationshipKind.ToOne)]
+        public ChainNode? Next { get; set; }
+    }
+
+    [JsonApiResource("media")]
+    private sealed class Media
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiType]
+        public string? MediaType { get; set; }
+    }
+
+    [JsonApiResource("attachment-holders")]
+    private sealed class AttachmentHolder
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("attachment", RelationshipKind.ToOne)]
+        public Media? Attachment { get; set; }
     }
 
     [JsonApiResource("guid-things")]
@@ -240,5 +283,190 @@ public class ResourceMapperTests
         Assert.Equal("Root", article.Comments[0].Article!.Title);
         Assert.Equal("5", article.Comments[0].Article!.Comments[0].Id);
         Assert.Equal("", article.Comments[0].Article!.Comments[0].Body);
+    }
+
+    [Fact]
+    public void Map_sets_resource_level_meta_and_links_when_present()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","meta":{"views":42},"links":{"self":"/articles/1"}}}
+            """);
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Equal(42, ((JsonNode)article.ResourceMeta!["views"]!).GetValue<int>());
+        Assert.Equal("/articles/1", article.ResourceLinks!["self"]);
+    }
+
+    [Fact]
+    public void Map_leaves_resource_level_meta_and_links_untouched_when_absent()
+    {
+        var resource = ReadResource("""{"data":{"type":"articles","id":"1"}}""");
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Null(article.ResourceMeta);
+        Assert.Null(article.ResourceLinks);
+    }
+
+    [Fact]
+    public void Map_sets_relationship_level_meta_and_links_when_present()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","relationships":{
+                "comments":{"data":[],"meta":{"count":0},"links":{"self":"/articles/1/relationships/comments"}}
+            }}}
+            """);
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Equal(0, ((JsonNode)article.CommentsMeta!["count"]!).GetValue<int>());
+        Assert.Equal("/articles/1/relationships/comments", article.CommentsLinks!["self"]);
+    }
+
+    [Fact]
+    public void Map_leaves_relationship_level_meta_and_links_untouched_when_absent()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","relationships":{"comments":{"data":[]}}}}
+            """);
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Null(article.CommentsMeta);
+        Assert.Null(article.CommentsLinks);
+    }
+
+    // Builds a linear chain of `count` distinct chain-node resources (1 -> 2 -> 3 -> ... -> count),
+    // each referencing the next via a to-one "next" relationship, with the root as primary data
+    // and the rest in "included". Distinct ids mean this is not a cycle (the existing `visiting`
+    // guard never fires) -- it's the "long linear chain" shape the depth limit exists for.
+    private static JsonApiDocument BuildChain(int count)
+    {
+        var nodes = new JsonArray();
+        for (var i = 1; i <= count; i++)
+        {
+            var next = i < count
+                ? new JsonObject { ["data"] = new JsonObject { ["type"] = "chain-nodes", ["id"] = (i + 1).ToString() } }
+                : new JsonObject { ["data"] = null };
+
+            nodes.Add(new JsonObject
+            {
+                ["type"] = "chain-nodes",
+                ["id"] = i.ToString(),
+                ["relationships"] = new JsonObject { ["next"] = next },
+            });
+        }
+
+        var root = (JsonObject)nodes[0]!.DeepClone();
+        var included = new JsonArray();
+        for (var i = 1; i < nodes.Count; i++)
+        {
+            included.Add(nodes[i]!.DeepClone());
+        }
+
+        var document = new JsonObject { ["data"] = root, ["included"] = included };
+        return new JsonApiDocumentReader().Read(document.ToJsonString());
+    }
+
+    [Fact]
+    public void Map_throws_when_a_linear_included_chain_exceeds_MaxIncludeDepth()
+    {
+        var mapper = new ResourceMapper(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludeDepth = 3 });
+        var document = BuildChain(6);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(
+            () => mapper.Map<ChainNode>(document.Data!.Single!, document.Included));
+    }
+
+    [Fact]
+    public void Map_succeeds_when_a_linear_included_chain_is_within_MaxIncludeDepth()
+    {
+        var mapper = new ResourceMapper(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludeDepth = 10 });
+        var document = BuildChain(6);
+
+        var chain = mapper.Map<ChainNode>(document.Data!.Single!, document.Included);
+
+        Assert.Equal("1", chain.Id);
+        Assert.Equal("6", chain.Next!.Next!.Next!.Next!.Next!.Id);
+    }
+
+    [Fact]
+    public void Map_throws_when_the_included_array_exceeds_MaxIncludedResources()
+    {
+        var mapper = new ResourceMapper(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludedResources = 2 });
+        var document = new JsonApiDocumentReader().Read("""
+            {"data":{"type":"articles","id":"1"},
+             "included":[
+                {"type":"people","id":"1"},
+                {"type":"people","id":"2"},
+                {"type":"people","id":"3"}
+             ]}
+            """);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(
+            () => mapper.Map<Article>(document.Data!.Single!, document.Included));
+    }
+
+    [Fact]
+    public void Map_throws_when_a_to_many_relationship_array_exceeds_MaxToManyRelationshipSize()
+    {
+        var mapper = new ResourceMapper(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxToManyRelationshipSize = 2 });
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","relationships":{"comments":{"data":[
+                {"type":"comments","id":"1"},{"type":"comments","id":"2"},{"type":"comments","id":"3"}
+            ]}}}}
+            """);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(() => mapper.Map<Article>(resource));
+    }
+
+    [Fact]
+    public void Map_sets_the_type_override_property_from_the_incoming_type()
+    {
+        var resource = ReadResource("""{"data":{"type":"videos","id":"1"}}""");
+
+        var media = _mapper.Map<Media>(resource);
+
+        Assert.Equal("videos", media.MediaType);
+    }
+
+    [Fact]
+    public void Map_sets_the_type_override_property_on_an_identifier_only_stub()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"attachment-holders","id":"1","relationships":{
+                "attachment":{"data":{"type":"images","id":"9"}}
+            }}}
+            """);
+
+        var holder = _mapper.Map<AttachmentHolder>(resource);
+
+        Assert.Equal("9", holder.Attachment!.Id);
+        Assert.Equal("images", holder.Attachment.MediaType);
+    }
+
+    [Fact]
+    public void Map_sets_the_type_override_property_when_hydrated_from_included()
+    {
+        var root = new JsonObject
+        {
+            ["type"] = "attachment-holders",
+            ["id"] = "1",
+            ["relationships"] = new JsonObject
+            {
+                ["attachment"] = new JsonObject
+                {
+                    ["data"] = new JsonObject { ["type"] = "images", ["id"] = "9" },
+                },
+            },
+        };
+        var included = new JsonArray { new JsonObject { ["type"] = "images", ["id"] = "9" } };
+        var documentJson = new JsonObject { ["data"] = root, ["included"] = included }.ToJsonString();
+
+        var document = new JsonApiDocumentReader().Read(documentJson);
+        var holder = _mapper.Map<AttachmentHolder>(document.Data!.Single!, document.Included);
+
+        Assert.Equal("images", holder.Attachment!.MediaType);
     }
 }

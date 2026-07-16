@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Jsonapinator.Exceptions;
 using Jsonapinator.Metadata;
 
@@ -63,6 +64,36 @@ public class ConventionResourceTypeResolverTests
             get => "";
             set { }
         }
+
+        public MetaObject? Meta { get; set; }
+
+        public LinksObject? Links { get; set; }
+
+        public MetaObject? CommentsMeta { get; set; }
+
+        public LinksObject? CommentsLinks { get; set; }
+
+        public string? Type { get; set; }
+    }
+
+    private sealed class WrongTypedMetaAndLinks
+    {
+        public string Id { get; set; } = "";
+
+        // Named "Meta"/"Links" but the wrong type — should fall through to being a flat attribute
+        // rather than being recognized as resource-level meta/links.
+        public string Meta { get; set; } = "";
+
+        public string Links { get; set; } = "";
+    }
+
+    private sealed class WrongTypedType
+    {
+        public string Id { get; set; } = "";
+
+        // Named "Type" but the wrong type — should fall through to being a flat attribute rather
+        // than being recognized as the resource-type override.
+        public int Type { get; set; }
     }
 
     private sealed class OrderLine
@@ -238,6 +269,70 @@ public class ConventionResourceTypeResolverTests
         var second = _resolver.Resolve(typeof(Article));
 
         Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void Resolve_recognizes_a_Meta_property_of_type_MetaObject_as_resource_level_meta()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.Meta), metadata.MetaProperty?.Name);
+        Assert.DoesNotContain(metadata.Attributes, a => a.Property.Name == nameof(Article.Meta));
+    }
+
+    [Fact]
+    public void Resolve_recognizes_a_Links_property_of_type_LinksObject_as_resource_level_links()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.Links), metadata.LinksProperty?.Name);
+        Assert.DoesNotContain(metadata.Attributes, a => a.Property.Name == nameof(Article.Links));
+    }
+
+    [Fact]
+    public void Resolve_falls_through_to_a_flat_attribute_when_Meta_or_Links_named_property_has_the_wrong_type()
+    {
+        var metadata = _resolver.Resolve(typeof(WrongTypedMetaAndLinks));
+
+        Assert.Null(metadata.MetaProperty);
+        Assert.Null(metadata.LinksProperty);
+        Assert.Contains(metadata.Attributes, a => a.Property.Name == "Meta");
+        Assert.Contains(metadata.Attributes, a => a.Property.Name == "Links");
+    }
+
+    [Fact]
+    public void Resolve_recognizes_RelName_Meta_and_Links_sibling_properties_for_a_relationship()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        var comments = Assert.Single(metadata.Relationships, r => r.Property.Name == nameof(Article.Comments));
+        Assert.Equal(nameof(Article.CommentsMeta), comments.MetaProperty?.Name);
+        Assert.Equal(nameof(Article.CommentsLinks), comments.LinksProperty?.Name);
+
+        Assert.DoesNotContain(metadata.Attributes, a => a.Property.Name == nameof(Article.CommentsMeta));
+        Assert.DoesNotContain(metadata.Attributes, a => a.Property.Name == nameof(Article.CommentsLinks));
+
+        var author = Assert.Single(metadata.Relationships, r => r.Property.Name == nameof(Article.Author));
+        Assert.Null(author.MetaProperty);
+        Assert.Null(author.LinksProperty);
+    }
+
+    [Fact]
+    public void Resolve_recognizes_a_Type_property_of_type_string_as_the_type_override()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.Type), metadata.TypeProperty?.Name);
+        Assert.DoesNotContain(metadata.Attributes, a => a.Property.Name == nameof(Article.Type));
+    }
+
+    [Fact]
+    public void Resolve_falls_through_to_a_flat_attribute_when_Type_named_property_has_the_wrong_type()
+    {
+        var metadata = _resolver.Resolve(typeof(WrongTypedType));
+
+        Assert.Null(metadata.TypeProperty);
+        Assert.Contains(metadata.Attributes, a => a.Property.Name == "Type");
     }
 
     [Fact]

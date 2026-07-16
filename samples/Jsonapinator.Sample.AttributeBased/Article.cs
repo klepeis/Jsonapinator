@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 
 namespace Jsonapinator.Sample.AttributeBased;
 
@@ -37,6 +38,44 @@ public class Article
     // document at all (unlike convention mode, attribute mode requires an explicit attribute on
     // every property that should be exposed).
     public string InternalNotes { get; set; } = "";
+
+    // [JsonApiMeta]/[JsonApiLinks] lift a property straight onto the resource object's own
+    // "meta"/"links" (as opposed to JsonApiDocumentOptions.Meta/Links, which are document-level).
+    // See _docs/attribute-based-mapping.md.
+    [JsonApiMeta]
+    public MetaObject? ArticleMeta { get; set; }
+
+    [JsonApiLinks]
+    public LinksObject? ArticleLinks { get; set; }
+
+    // [JsonApiRelationshipMeta]/[JsonApiRelationshipLinks] attach to the "comments" relationship
+    // object itself (its own "meta"/"links", not the related Comment resources' own meta/links).
+    [JsonApiRelationshipMeta("comments")]
+    public MetaObject? CommentsMeta { get; set; }
+
+    [JsonApiRelationshipLinks("comments")]
+    public LinksObject? CommentsLinks { get; set; }
+
+    [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
+    public List<Attachment> Attachments { get; set; } = new();
+}
+
+// [JsonApiType] overrides the resource's "type" per instance instead of using a fixed
+// [JsonApiResource] name -- useful for a discriminator-style CLR type shared by several JSON:API
+// resource types (here, one Attachment class emits "videos" or "images" depending on the
+// instance). Falls back to the [JsonApiResource] name below when the property is null/empty.
+// See _docs/attribute-based-mapping.md.
+[JsonApiResource("attachments")]
+public class Attachment
+{
+    [JsonApiId]
+    public string Id { get; set; } = "";
+
+    [JsonApiAttribute]
+    public string Url { get; set; } = "";
+
+    [JsonApiType]
+    public string? AttachmentType { get; set; }
 }
 
 public class ArticleSeo

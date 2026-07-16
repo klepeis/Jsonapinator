@@ -27,8 +27,8 @@ public static class JsonApiMvcBuilderExtensions
         configure?.Invoke(options);
 
         var serializer = options.ConventionMapping
-            ? JsonApiSerializer.WithConventions()
-            : new JsonApiSerializer();
+            ? JsonApiSerializer.WithConventions(options.SerializerOptions)
+            : new JsonApiSerializer(options.SerializerOptions);
 
         builder.Services.AddSingleton(serializer);
         builder.Services.AddSingleton(options);

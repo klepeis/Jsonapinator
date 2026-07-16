@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Jsonapinator.Exceptions;
 
 namespace Jsonapinator.Metadata;
@@ -34,12 +35,21 @@ public sealed class ConventionResourceTypeResolver : IResourceTypeResolver
                 $"Type '{clrType.Name}' must have a public settable property named 'Id' of a supported type " +
                 $"({string.Join(", ", SupportedIdTypes.Select(t => t.Name))}) to be used with convention-based mapping.");
 
-        var attributes = new List<AttributeMetadata>();
-        var relationships = new List<RelationshipMetadata>();
+        var metaProperty = mappableProperties.SingleOrDefault(p => p.Name == "Meta" && p.PropertyType == typeof(MetaObject));
+        var linksProperty = mappableProperties.SingleOrDefault(p => p.Name == "Links" && p.PropertyType == typeof(LinksObject));
+        var typeProperty = mappableProperties.SingleOrDefault(p => p.Name == "Type" && p.PropertyType == typeof(string));
+
+        var excluded = new HashSet<PropertyInfo> { idProperty };
+        if (metaProperty is not null) excluded.Add(metaProperty);
+        if (linksProperty is not null) excluded.Add(linksProperty);
+        if (typeProperty is not null) excluded.Add(typeProperty);
+
+        var relationshipCandidates = new List<(PropertyInfo Property, string Name, RelationshipKind Kind, Type RelatedClrType)>();
+        var attributeCandidates = new List<PropertyInfo>();
 
         foreach (var property in mappableProperties)
         {
-            if (property == idProperty)
+            if (excluded.Contains(property))
             {
                 continue;
             }
@@ -50,23 +60,50 @@ public sealed class ConventionResourceTypeResolver : IResourceTypeResolver
 
             if (IsRelationshipTarget(candidateType))
             {
-                relationships.Add(new RelationshipMetadata
-                {
-                    Property = property,
-                    Name = PropertyNaming.ToCamelCase(property.Name),
-                    Kind = isToMany ? RelationshipKind.ToMany : RelationshipKind.ToOne,
-                    RelatedClrType = candidateType,
-                });
+                relationshipCandidates.Add((
+                    property,
+                    PropertyNaming.ToCamelCase(property.Name),
+                    isToMany ? RelationshipKind.ToMany : RelationshipKind.ToOne,
+                    candidateType));
             }
             else
             {
-                attributes.Add(new AttributeMetadata
-                {
-                    Property = property,
-                    JsonName = property.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? PropertyNaming.ToCamelCase(property.Name),
-                });
+                attributeCandidates.Add(property);
             }
         }
+
+        var siblingExclusions = new HashSet<PropertyInfo>();
+        var relationships = new List<RelationshipMetadata>();
+
+        foreach (var candidate in relationshipCandidates)
+        {
+            var relMeta = attributeCandidates.FirstOrDefault(
+                p => p.Name == candidate.Property.Name + "Meta" && p.PropertyType == typeof(MetaObject));
+            var relLinks = attributeCandidates.FirstOrDefault(
+                p => p.Name == candidate.Property.Name + "Links" && p.PropertyType == typeof(LinksObject));
+
+            if (relMeta is not null) siblingExclusions.Add(relMeta);
+            if (relLinks is not null) siblingExclusions.Add(relLinks);
+
+            relationships.Add(new RelationshipMetadata
+            {
+                Property = candidate.Property,
+                Name = candidate.Name,
+                Kind = candidate.Kind,
+                RelatedClrType = candidate.RelatedClrType,
+                MetaProperty = relMeta,
+                LinksProperty = relLinks,
+            });
+        }
+
+        var attributes = attributeCandidates
+            .Where(p => !siblingExclusions.Contains(p))
+            .Select(p => new AttributeMetadata
+            {
+                Property = p,
+                JsonName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? PropertyNaming.ToCamelCase(p.Name),
+            })
+            .ToList();
 
         return new ResourceMetadata
         {
@@ -75,6 +112,9 @@ public sealed class ConventionResourceTypeResolver : IResourceTypeResolver
             IdProperty = idProperty,
             Attributes = attributes,
             Relationships = relationships,
+            MetaProperty = metaProperty,
+            LinksProperty = linksProperty,
+            TypeProperty = typeProperty,
         };
     }
 

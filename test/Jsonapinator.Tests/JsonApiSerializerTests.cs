@@ -20,6 +20,57 @@ public class JsonApiSerializerTests
 
         [JsonApiRelationship("author", RelationshipKind.ToOne)]
         public Person? Author { get; set; }
+
+        [JsonApiMeta]
+        public MetaObject? ResourceMeta { get; set; }
+
+        [JsonApiLinks]
+        public LinksObject? ResourceLinks { get; set; }
+
+        [JsonApiRelationshipMeta("author")]
+        public MetaObject? AuthorMeta { get; set; }
+
+        [JsonApiRelationshipLinks("author")]
+        public LinksObject? AuthorLinks { get; set; }
+    }
+
+    private sealed class ConventionArticle
+    {
+        public string Id { get; set; } = "";
+
+        public string Title { get; set; } = "";
+
+        public ConventionPerson? Author { get; set; }
+
+        public MetaObject? Meta { get; set; }
+
+        public LinksObject? Links { get; set; }
+
+        public MetaObject? AuthorMeta { get; set; }
+
+        public LinksObject? AuthorLinks { get; set; }
+    }
+
+    private sealed class ConventionPerson
+    {
+        public string Id { get; set; } = "";
+    }
+
+    [JsonApiResource("media")]
+    private sealed class Media
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiType]
+        public string? MediaType { get; set; }
+    }
+
+    private sealed class ConventionMedia
+    {
+        public string Id { get; set; } = "";
+
+        public string? Type { get; set; }
     }
 
     [JsonApiResource("people")]
@@ -241,6 +292,91 @@ public class JsonApiSerializerTests
         Assert.Equal(original.Id, roundTripped.Id);
         Assert.Equal(original.Title, roundTripped.Title);
         Assert.Equal(original.Author.Id, roundTripped.Author!.Id);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_resource_and_relationship_level_meta_and_links()
+    {
+        var original = new Article
+        {
+            Id = "1",
+            Title = "Round Trip",
+            Author = new Person { Id = "9" },
+            ResourceMeta = new MetaObject { ["views"] = 42 },
+            ResourceLinks = new LinksObject { ["self"] = "/articles/1" },
+            AuthorMeta = new MetaObject { ["role"] = "editor" },
+            AuthorLinks = new LinksObject { ["self"] = "/articles/1/relationships/author" },
+        };
+
+        var json = _serializer.Serialize(original);
+        var roundTripped = _serializer.Deserialize<Article>(json);
+
+        Assert.Equal(42, ((JsonNode)roundTripped.ResourceMeta!["views"]!).GetValue<int>());
+        Assert.Equal("/articles/1", roundTripped.ResourceLinks!["self"]);
+        Assert.Equal("editor", ((JsonNode)roundTripped.AuthorMeta!["role"]!).GetValue<string>());
+        Assert.Equal("/articles/1/relationships/author", roundTripped.AuthorLinks!["self"]);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_resource_and_relationship_level_meta_and_links_with_conventions()
+    {
+        var conventionSerializer = JsonApiSerializer.WithConventions();
+        var original = new ConventionArticle
+        {
+            Id = "1",
+            Title = "Round Trip",
+            Author = new ConventionPerson { Id = "9" },
+            Meta = new MetaObject { ["views"] = 42 },
+            Links = new LinksObject { ["self"] = "/articles/1" },
+            AuthorMeta = new MetaObject { ["role"] = "editor" },
+            AuthorLinks = new LinksObject { ["self"] = "/articles/1/relationships/author" },
+        };
+
+        var json = conventionSerializer.Serialize(original);
+        var roundTripped = conventionSerializer.Deserialize<ConventionArticle>(json);
+
+        Assert.Equal(42, ((JsonNode)roundTripped.Meta!["views"]!).GetValue<int>());
+        Assert.Equal("/articles/1", roundTripped.Links!["self"]);
+        Assert.Equal("editor", ((JsonNode)roundTripped.AuthorMeta!["role"]!).GetValue<string>());
+        Assert.Equal("/articles/1/relationships/author", roundTripped.AuthorLinks!["self"]);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_the_type_override_property()
+    {
+        var video = new Media { Id = "1", MediaType = "videos" };
+
+        var json = _serializer.Serialize(video);
+        var roundTripped = _serializer.Deserialize<Media>(json);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal("videos", node["data"]!["type"]!.GetValue<string>());
+        Assert.Equal("videos", roundTripped.MediaType);
+    }
+
+    [Fact]
+    public void Serialize_falls_back_to_the_declared_resource_type_when_the_override_is_null()
+    {
+        var media = new Media { Id = "1", MediaType = null };
+
+        var json = _serializer.Serialize(media);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal("media", node["data"]!["type"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_the_type_override_property_with_conventions()
+    {
+        var conventionSerializer = JsonApiSerializer.WithConventions();
+        var video = new ConventionMedia { Id = "1", Type = "videos" };
+
+        var json = conventionSerializer.Serialize(video);
+        var roundTripped = conventionSerializer.Deserialize<ConventionMedia>(json);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal("videos", node["data"]!["type"]!.GetValue<string>());
+        Assert.Equal("videos", roundTripped.Type);
     }
 
     [Fact]

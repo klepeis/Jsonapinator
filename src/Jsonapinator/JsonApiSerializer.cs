@@ -20,8 +20,8 @@ public sealed class JsonApiSerializer
     private readonly IJsonApiReader _reader;
     private readonly ResourceMapper _mapper;
 
-    public JsonApiSerializer()
-        : this(new ResourceTypeResolver(), new JsonApiDocumentWriter(), new JsonApiDocumentReader())
+    public JsonApiSerializer(JsonApiSerializerOptions? options = null)
+        : this(new ResourceTypeResolver(), new JsonApiDocumentWriter(), new JsonApiDocumentReader(), options)
     {
     }
 
@@ -30,15 +30,16 @@ public sealed class JsonApiSerializer
     /// <c>Jsonapinator.Attributes</c> required. See <see cref="ConventionResourceTypeResolver"/>
     /// for the classification rule.
     /// </summary>
-    public static JsonApiSerializer WithConventions() =>
-        new(new ConventionResourceTypeResolver(), new JsonApiDocumentWriter(), new JsonApiDocumentReader());
+    public static JsonApiSerializer WithConventions(JsonApiSerializerOptions? options = null) =>
+        new(new ConventionResourceTypeResolver(), new JsonApiDocumentWriter(), new JsonApiDocumentReader(), options);
 
-    public JsonApiSerializer(IResourceTypeResolver resolver, IJsonApiWriter writer, IJsonApiReader reader)
+    public JsonApiSerializer(
+        IResourceTypeResolver resolver, IJsonApiWriter writer, IJsonApiReader reader, JsonApiSerializerOptions? options = null)
     {
-        _graphBuilder = new ResourceGraphBuilder(resolver);
+        _graphBuilder = new ResourceGraphBuilder(resolver, options);
         _writer = writer;
         _reader = reader;
-        _mapper = new ResourceMapper(resolver);
+        _mapper = new ResourceMapper(resolver, options);
     }
 
     public string Serialize<T>(T resource, JsonApiDocumentOptions? options = null) where T : notnull

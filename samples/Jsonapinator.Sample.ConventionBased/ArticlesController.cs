@@ -1,5 +1,6 @@
 using Jsonapinator;
 using Jsonapinator.AspNetCore.Formatters;
+using Jsonapinator.Document;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Jsonapinator.Sample.ConventionBased;
@@ -25,6 +26,15 @@ public class ArticlesController : ControllerBase
             ],
             Tags = ["json-api", "rest"],
             Seo = new ArticleSeo { MetaTitle = "JSON:API paints my bikeshed!", MetaDescription = "A tour of JSON:API." },
+            Meta = new MetaObject { ["views"] = 1024 },
+            Links = new LinksObject { ["self"] = "/articles/1" },
+            CommentsMeta = new MetaObject { ["count"] = 2 },
+            CommentsLinks = new LinksObject { ["self"] = "/articles/1/relationships/comments" },
+            Attachments =
+            [
+                new Attachment { Id = "1", Url = "/files/bikeshed.mp4", Type = "videos" },
+                new Attachment { Id = "2", Url = "/files/bikeshed.png", Type = "images" },
+            ],
         },
     ];
 
@@ -61,6 +71,30 @@ public class ArticlesController : ControllerBase
         }
 
         var options = new JsonApiDocumentOptions { Include = new[] { "author", "comments.author" } };
+        var json = _serializer.Serialize(article, options);
+        return Content(json, JsonApiOutputFormatter.MediaType);
+    }
+
+    // Document-level "meta"/"links" (JsonApiDocumentOptions.Meta/Links) apply to the whole
+    // document, not any one resource -- e.g. pagination info or a top-level "self" link. Like
+    // Include above, this can't be triggered by returning a plain POCO, so it's shown via the
+    // same direct-serializer workaround. Resource-level Meta/Links and relationship-level
+    // CommentsMeta/CommentsLinks above appear on every GET automatically, since those are
+    // POCO-driven and need no JsonApiDocumentOptions at all.
+    [HttpGet("{id}/with-document-meta")]
+    public IActionResult GetByIdWithDocumentMeta(string id)
+    {
+        var article = Articles.FirstOrDefault(a => a.Id == id);
+        if (article is null)
+        {
+            return NotFound();
+        }
+
+        var options = new JsonApiDocumentOptions
+        {
+            Meta = new MetaObject { ["requestId"] = Guid.NewGuid().ToString() },
+            Links = new LinksObject { ["self"] = $"/articles/{id}" },
+        };
         var json = _serializer.Serialize(article, options);
         return Content(json, JsonApiOutputFormatter.MediaType);
     }

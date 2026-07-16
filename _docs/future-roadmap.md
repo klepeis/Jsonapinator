@@ -1,9 +1,14 @@
 # Jsonapinator — Future Roadmap
 
 V1 covers the core JSON:API document structure only: primary data (single resource / resource
-collection), attributes, relationships (to-one and to-many, as resource identifiers), links,
-meta, and top-level errors. Everything below is explicitly out of scope for V1 and deferred to
-later phases.
+collection), attributes, relationships (to-one and to-many, as resource identifiers), document-,
+resource-, and relationship-level links and meta (POCO-driven via `[JsonApiMeta]`/`[JsonApiLinks]`/
+`[JsonApiRelationshipMeta]`/`[JsonApiRelationshipLinks]` or the `Meta`/`Links`/`{Rel}Meta`/
+`{Rel}Links` naming convention — see `_docs/attribute-based-mapping.md` and
+`_docs/convention-based-mapping.md`), a per-instance `"type"` override (`[JsonApiType]` or the
+`Type` naming convention), configurable depth/size limits on relationship hydration
+(`JsonApiSerializerOptions`), and top-level errors. Everything below is explicitly out of scope
+for V1 and deferred to later phases.
 
 ## Prioritized backlog
 
@@ -15,8 +20,6 @@ larger feature work with no forcing function yet.
 |---|---|---|
 | **P0** | [`JsonApiDocumentReader` raw exceptions on malformed `"type"`/`"id"`/array elements](#security-considerations) | Directly on the untrusted-input deserialize path; throws framework exceptions instead of `JsonApiMappingException`, inconsistent with the library's own error contract. Moderate effort (wrap the existing null-forgiving/hard-cast sites). |
 | **P0** | [Shape-mismatched body → 500, not 400](#jsonapinatoraspnetcore--deferred-concerns) (`Deserialize`/`DeserializeCollection`, all 4 call sites) | High likelihood — any client sending an array where a single resource is expected (or vice versa) hits this. Moderate effort, all 4 sites share the same fix shape. |
-| **P0** | [No recursion/depth limit on `included`-driven relationship hydration](#security-considerations) | Can drive an uncatchable `StackOverflowException` that crashes the whole process, not just the request. Moderate effort — a simple max-depth counter in `ResourceMapper.BuildRelatedInstance`/`ResourceGraphBuilder.WalkIncludes`. |
-| **P0** | [No size cap on `included`/to-many arrays during deserialize](#security-considerations) | Unbounded allocation vector; only hosting-layer request-size limits back it up today. Needs a concrete opt-in limit (e.g. `JsonApiSerializerOptions.MaxIncludedResources`). |
 | **P1** | [`[JsonApiId]` duplicate → confusing `InvalidOperationException`](#correctnessrobustness-gaps) | Cheap, isolated fix (replace `SingleOrDefault` with an explicit check) that meaningfully improves a developer-facing error message. |
 | **P1** | [No wrapping around `GetValue`/`SetValue`/`JsonNode.Deserialize` type-mismatch failures](#correctnessrobustness-gaps) | Common real-world case (client sends a wrong-typed attribute) currently surfaces the wrong exception type. Moderate effort — needs a try/catch per call site with a clear message. |
 | **P1** | [Nested attribute values aren't camelCased](#correctnessrobustness-gaps) | Visible, easy-to-hit inconsistency (confirmed via the samples) between an attribute's own key and its nested content. Likely a one-line fix (pass camelCase `JsonSerializerOptions` into `SerializeToNode`). |
@@ -119,17 +122,21 @@ format conversion. Deferred from that pass, not yet built:
 
 Findings from a broad code review (2026-07), documentation only — no code changes made yet:
 
-- **No recursion/depth limit on `included`-driven relationship hydration**
-  (`ResourceMapper.BuildRelatedInstance`). Genuine cycles are already guarded (a `visiting` set
-  prevents infinite loops), but a long *linear* chain in a large `included` array (A→B→C→D→…, not
-  a cycle) can still drive deep recursion through `MapOnto`/`BuildRelationshipValue`/
-  `BuildRelatedInstance` and risk an uncatchable `StackOverflowException`, which crashes the whole
-  process, not just the request. The same shape of risk exists in `ResourceGraphBuilder.WalkIncludes`
-  if `includePaths` segments are ever derived from unvalidated request input.
-- **No size cap on `included` arrays or to-many relationship arrays during deserialize.** A very
-  large payload drives proportionally large allocations (parse, `BuildLookup` dictionary,
-  `Activator.CreateInstance` per element) with no library-level ceiling — only hosting-layer
-  request-size limits act as a backstop today.
+- ~~**No recursion/depth limit on `included`-driven relationship hydration.**~~ — **done.**
+  `JsonApiSerializerOptions.MaxIncludeDepth` (default 32) bounds relationship-hydration recursion
+  in both `ResourceMapper.BuildRelatedInstance` (deserialize) and
+  `ResourceGraphBuilder.WalkIncludes` (serialize, defense-in-depth for when `Include` paths are
+  eventually wired to request input) — a chain deeper than the configured limit throws
+  `JsonApiMappingException` instead of risking an uncatchable `StackOverflowException`. Genuine
+  cycles are still guarded separately by the existing `visiting` set.
+- ~~**No size cap on `included` arrays or to-many relationship arrays during deserialize.**~~ —
+  **done.** `JsonApiSerializerOptions.MaxIncludedResources` and `.MaxToManyRelationshipSize`
+  (both default 5000) cap the `"included"` array size (`ResourceMapper.BuildLookup`) and each
+  to-many relationship's `"data"` array size (`ResourceMapper.BuildRelationshipValue`) — both
+  throw `JsonApiMappingException` before allocating further when exceeded. All three limits are
+  configurable per `JsonApiSerializer` (constructor parameter) and, for `Jsonapinator.AspNetCore`,
+  via `JsonApiFormatterOptions.WithMaxIncludeDepth`/`.WithMaxIncludedResources`/
+  `.WithMaxToManyRelationshipSize`.
 - **`JsonApiInputFormatter.ReadRequestBodyAsync` fully buffers the request body into a `string`**
   (and `JsonApiDocumentReader` then builds a second full in-memory `JsonNode` DOM) rather than
   streaming — a memory/CPU amplification vector for large bodies, unlike ASP.NET Core's own
@@ -212,7 +219,10 @@ Findings from a broad code review (2026-07), documentation only — no code chan
   adjacent to, but distinct from, the already-deferred sparse-fieldsets item.
 - No client-generated-id support (the spec's client-ID section).
 - No polymorphic/heterogeneous to-many relationship support — `RelationshipMetadata.RelatedClrType`
-  is a single CLR type per relationship property today.
+  is a single CLR type per relationship property today. Not solved by `[JsonApiType]`/the `Type`
+  naming convention (see `_docs/attribute-based-mapping.md`/`convention-based-mapping.md`), which
+  only lets a *single* CLR type emit a varying JSON:API `"type"` name per instance — it doesn't
+  let a relationship property hold instances of *multiple different CLR types*.
 - No ambiguity/cycle detection at metadata-build time for `ConventionResourceTypeResolver` on
   self-referential or mutually-referential convention types — could silently misclassify in
   unusual shapes.

@@ -46,4 +46,54 @@ public sealed class JsonApiFormatterOptions
         AlwaysMapErrors = true;
         return this;
     }
+
+    internal JsonApiSerializerOptions SerializerOptions { get; private set; } = new();
+
+    /// <summary>
+    /// Sets the maximum number of relationship "hops" followed while hydrating a resource from
+    /// an <c>"included"</c> array, guarding against a long linear chain of related resources
+    /// driving unbounded recursion. See <see cref="JsonApiSerializerOptions.MaxIncludeDepth"/>.
+    /// </summary>
+    public JsonApiFormatterOptions WithMaxIncludeDepth(int maxIncludeDepth)
+    {
+        SerializerOptions = new JsonApiSerializerOptions
+        {
+            MaxIncludeDepth = maxIncludeDepth,
+            MaxIncludedResources = SerializerOptions.MaxIncludedResources,
+            MaxToManyRelationshipSize = SerializerOptions.MaxToManyRelationshipSize,
+        };
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum number of resource objects allowed in a JSON:API document's
+    /// <c>"included"</c> array during deserialize. See
+    /// <see cref="JsonApiSerializerOptions.MaxIncludedResources"/>.
+    /// </summary>
+    public JsonApiFormatterOptions WithMaxIncludedResources(int maxIncludedResources)
+    {
+        SerializerOptions = new JsonApiSerializerOptions
+        {
+            MaxIncludeDepth = SerializerOptions.MaxIncludeDepth,
+            MaxIncludedResources = maxIncludedResources,
+            MaxToManyRelationshipSize = SerializerOptions.MaxToManyRelationshipSize,
+        };
+        return this;
+    }
+
+    /// <summary>
+    /// Sets the maximum number of resource identifiers allowed in a single to-many
+    /// relationship's <c>"data"</c> array during deserialize. See
+    /// <see cref="JsonApiSerializerOptions.MaxToManyRelationshipSize"/>.
+    /// </summary>
+    public JsonApiFormatterOptions WithMaxToManyRelationshipSize(int maxToManyRelationshipSize)
+    {
+        SerializerOptions = new JsonApiSerializerOptions
+        {
+            MaxIncludeDepth = SerializerOptions.MaxIncludeDepth,
+            MaxIncludedResources = SerializerOptions.MaxIncludedResources,
+            MaxToManyRelationshipSize = maxToManyRelationshipSize,
+        };
+        return this;
+    }
 }

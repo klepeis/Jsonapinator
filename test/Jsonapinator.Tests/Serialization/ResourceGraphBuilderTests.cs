@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Jsonapinator.Metadata;
 using Jsonapinator.Serialization;
 
@@ -25,6 +26,18 @@ public class ResourceGraphBuilderTests
 
         [JsonApiRelationship("comments", RelationshipKind.ToMany)]
         public List<Comment> Comments { get; set; } = new();
+
+        [JsonApiMeta]
+        public MetaObject? ResourceMeta { get; set; }
+
+        [JsonApiLinks]
+        public LinksObject? ResourceLinks { get; set; }
+
+        [JsonApiRelationshipMeta("comments")]
+        public MetaObject? CommentsMeta { get; set; }
+
+        [JsonApiRelationshipLinks("comments")]
+        public LinksObject? CommentsLinks { get; set; }
     }
 
     [JsonApiResource("people")]
@@ -48,6 +61,26 @@ public class ResourceGraphBuilderTests
 
         [JsonApiRelationship("author", RelationshipKind.ToOne)]
         public Person? Author { get; set; }
+    }
+
+    [JsonApiResource("chain-nodes")]
+    private sealed class ChainNode
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("next", RelationshipKind.ToOne)]
+        public ChainNode? Next { get; set; }
+    }
+
+    [JsonApiResource("media")]
+    private sealed class Media
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiType]
+        public string? MediaType { get; set; }
     }
 
     [JsonApiResource("guid-things")]
@@ -292,6 +325,63 @@ public class ResourceGraphBuilderTests
     }
 
     [Fact]
+    public void BuildResource_maps_resource_level_meta_and_links()
+    {
+        var article = new Article
+        {
+            Id = "1",
+            ResourceMeta = new MetaObject { ["views"] = 42 },
+            ResourceLinks = new LinksObject { ["self"] = "/articles/1" },
+        };
+
+        var resource = _builder.BuildResource(article);
+
+        Assert.Equal(42, resource.Meta!["views"]);
+        Assert.Equal("/articles/1", resource.Links!["self"]);
+    }
+
+    [Fact]
+    public void BuildResource_leaves_resource_level_meta_and_links_null_when_not_set()
+    {
+        var article = new Article { Id = "1" };
+
+        var resource = _builder.BuildResource(article);
+
+        Assert.Null(resource.Meta);
+        Assert.Null(resource.Links);
+    }
+
+    [Fact]
+    public void BuildResource_maps_relationship_level_meta_and_links()
+    {
+        var article = new Article
+        {
+            Id = "1",
+            Comments = new List<Comment> { new() { Id = "5" } },
+            CommentsMeta = new MetaObject { ["count"] = 1 },
+            CommentsLinks = new LinksObject { ["self"] = "/articles/1/relationships/comments" },
+        };
+
+        var resource = _builder.BuildResource(article);
+
+        var relationship = resource.Relationships!["comments"];
+        Assert.Equal(1, relationship.Meta!["count"]);
+        Assert.Equal("/articles/1/relationships/comments", relationship.Links!["self"]);
+    }
+
+    [Fact]
+    public void BuildResource_leaves_relationship_level_meta_and_links_null_for_a_relationship_without_them()
+    {
+        var article = new Article { Id = "1", Author = new Person { Id = "9" } };
+
+        var resource = _builder.BuildResource(article);
+
+        var relationship = resource.Relationships!["author"];
+        Assert.Null(relationship.Meta);
+        Assert.Null(relationship.Links);
+    }
+
+    [Fact]
     public void BuildDocument_throws_on_an_unknown_include_path_segment()
     {
         var article = new Article { Id = "1" };
@@ -301,5 +391,83 @@ public class ResourceGraphBuilderTests
 
         Assert.Contains("publisher", ex.Message);
         Assert.Contains("articles", ex.Message);
+    }
+
+    private static ChainNode BuildChain(int count)
+    {
+        var head = new ChainNode { Id = "1" };
+        var current = head;
+        for (var i = 2; i <= count; i++)
+        {
+            var next = new ChainNode { Id = i.ToString() };
+            current.Next = next;
+            current = next;
+        }
+
+        return head;
+    }
+
+    private static string[] IncludePath(int hops) =>
+        new[] { string.Join(".", Enumerable.Repeat("next", hops)) };
+
+    [Fact]
+    public void BuildDocument_throws_when_an_include_path_walk_exceeds_MaxIncludeDepth()
+    {
+        var builder = new ResourceGraphBuilder(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludeDepth = 3 });
+        var chain = BuildChain(10);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(
+            () => builder.BuildDocument(chain, IncludePath(9)));
+    }
+
+    [Fact]
+    public void BuildDocument_succeeds_when_an_include_path_walk_is_within_MaxIncludeDepth()
+    {
+        var builder = new ResourceGraphBuilder(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludeDepth = 20 });
+        var chain = BuildChain(6);
+
+        var document = builder.BuildDocument(chain, IncludePath(5));
+
+        Assert.Equal(5, document.Included!.Count);
+    }
+
+    [Fact]
+    public void BuildDocument_throws_when_included_would_exceed_MaxIncludedResources()
+    {
+        var builder = new ResourceGraphBuilder(new ResourceTypeResolver(), new JsonApiSerializerOptions { MaxIncludedResources = 2 });
+        var chain = BuildChain(6);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(
+            () => builder.BuildDocument(chain, IncludePath(5)));
+    }
+
+    [Fact]
+    public void BuildResource_uses_the_type_override_property_when_set()
+    {
+        var video = new Media { Id = "1", MediaType = "videos" };
+
+        var resource = _builder.BuildResource(video);
+
+        Assert.Equal("videos", resource.Type);
+    }
+
+    [Fact]
+    public void BuildResource_falls_back_to_the_declared_resource_type_when_the_override_is_null_or_empty()
+    {
+        var media = new Media { Id = "1", MediaType = null };
+
+        var resource = _builder.BuildResource(media);
+
+        Assert.Equal("media", resource.Type);
+    }
+
+    [Fact]
+    public void BuildResource_lets_two_instances_of_the_same_CLR_type_emit_different_type_names()
+    {
+        var video = new Media { Id = "1", MediaType = "videos" };
+        var image = new Media { Id = "2", MediaType = "images" };
+
+        Assert.Equal("videos", _builder.BuildResource(video).Type);
+        Assert.Equal("images", _builder.BuildResource(image).Type);
     }
 }

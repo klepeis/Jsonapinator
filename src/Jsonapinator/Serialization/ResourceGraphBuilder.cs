@@ -13,10 +13,12 @@ namespace Jsonapinator.Serialization;
 public sealed class ResourceGraphBuilder
 {
     private readonly IResourceTypeResolver _resolver;
+    private readonly JsonApiSerializerOptions _options;
 
-    public ResourceGraphBuilder(IResourceTypeResolver resolver)
+    public ResourceGraphBuilder(IResourceTypeResolver resolver, JsonApiSerializerOptions? options = null)
     {
         _resolver = resolver;
+        _options = options ?? new JsonApiSerializerOptions();
     }
 
     public JsonApiDocument BuildDocument(object resource) =>
@@ -61,7 +63,7 @@ public sealed class ResourceGraphBuilder
 
         var resourceObject = new ResourceObject
         {
-            Type = metadata.ResourceType,
+            Type = ResolveTypeName(metadata, resource),
             Id = FormatId(metadata.IdProperty.GetValue(resource)),
         };
 
@@ -79,6 +81,16 @@ public sealed class ResourceGraphBuilder
                 r => BuildRelationship(resource, r));
         }
 
+        if (metadata.MetaProperty is not null)
+        {
+            resourceObject.Meta = (MetaObject?)metadata.MetaProperty.GetValue(resource);
+        }
+
+        if (metadata.LinksProperty is not null)
+        {
+            resourceObject.Links = (LinksObject?)metadata.LinksProperty.GetValue(resource);
+        }
+
         return resourceObject;
     }
 
@@ -86,6 +98,7 @@ public sealed class ResourceGraphBuilder
     {
         var value = relationshipMetadata.Property.GetValue(resource);
 
+        RelationshipObject relationshipObject;
         if (relationshipMetadata.Kind == RelationshipKind.ToMany)
         {
             var identifiers = new List<ResourceIdentifierObject>();
@@ -97,14 +110,28 @@ public sealed class ResourceGraphBuilder
                 }
             }
 
-            return new RelationshipObject { IsToMany = true, ManyData = identifiers };
+            relationshipObject = new RelationshipObject { IsToMany = true, ManyData = identifiers };
+        }
+        else
+        {
+            relationshipObject = new RelationshipObject
+            {
+                IsToMany = false,
+                SingleData = value is null ? null : BuildIdentifier(value),
+            };
         }
 
-        return new RelationshipObject
+        if (relationshipMetadata.MetaProperty is not null)
         {
-            IsToMany = false,
-            SingleData = value is null ? null : BuildIdentifier(value),
-        };
+            relationshipObject.Meta = (MetaObject?)relationshipMetadata.MetaProperty.GetValue(resource);
+        }
+
+        if (relationshipMetadata.LinksProperty is not null)
+        {
+            relationshipObject.Links = (LinksObject?)relationshipMetadata.LinksProperty.GetValue(resource);
+        }
+
+        return relationshipObject;
     }
 
     private ResourceIdentifierObject BuildIdentifier(object relatedResource)
@@ -112,9 +139,20 @@ public sealed class ResourceGraphBuilder
         var metadata = _resolver.Resolve(relatedResource.GetType());
         return new ResourceIdentifierObject
         {
-            Type = metadata.ResourceType,
+            Type = ResolveTypeName(metadata, relatedResource),
             Id = FormatId(metadata.IdProperty.GetValue(relatedResource)),
         };
+    }
+
+    private static string ResolveTypeName(ResourceMetadata metadata, object instance)
+    {
+        if (metadata.TypeProperty is not null &&
+            metadata.TypeProperty.GetValue(instance) is string { Length: > 0 } value)
+        {
+            return value;
+        }
+
+        return metadata.ResourceType;
     }
 
     private void ApplyIncludes(JsonApiDocument document, IEnumerable<object> rootResources, IEnumerable<string>? includePaths)
@@ -137,13 +175,13 @@ public sealed class ResourceGraphBuilder
         foreach (var root in roots)
         {
             var metadata = _resolver.Resolve(root.GetType());
-            visited.Add((metadata.ResourceType, FormatId(metadata.IdProperty.GetValue(root))));
+            visited.Add((ResolveTypeName(metadata, root), FormatId(metadata.IdProperty.GetValue(root))));
         }
 
         var included = new List<ResourceObject>();
         foreach (var root in roots)
         {
-            WalkIncludes(root, tree, visited, included);
+            WalkIncludes(root, tree, visited, included, depth: 0);
         }
 
         if (included.Count > 0)
@@ -152,8 +190,21 @@ public sealed class ResourceGraphBuilder
         }
     }
 
-    private void WalkIncludes(object resource, IncludeNode node, HashSet<(string Type, string Id)> visited, List<ResourceObject> included)
+    private void WalkIncludes(
+        object resource, IncludeNode node, HashSet<(string Type, string Id)> visited, List<ResourceObject> included, int depth)
     {
+        if (node.Children.Count == 0)
+        {
+            return;
+        }
+
+        if (depth > _options.MaxIncludeDepth)
+        {
+            throw new Exceptions.JsonApiMappingException(
+                $"Include-path walk exceeded the configured maximum depth of {_options.MaxIncludeDepth} " +
+                $"({nameof(JsonApiSerializerOptions.MaxIncludeDepth)}).");
+        }
+
         var metadata = _resolver.Resolve(resource.GetType());
 
         foreach (var (segmentName, childNode) in node.Children)
@@ -170,14 +221,21 @@ public sealed class ResourceGraphBuilder
             foreach (var related in relatedObjects)
             {
                 var relatedMetadata = _resolver.Resolve(related.GetType());
-                var key = (relatedMetadata.ResourceType, FormatId(relatedMetadata.IdProperty.GetValue(related)));
+                var key = (ResolveTypeName(relatedMetadata, related), FormatId(relatedMetadata.IdProperty.GetValue(related)));
 
                 if (visited.Add(key))
                 {
+                    if (included.Count >= _options.MaxIncludedResources)
+                    {
+                        throw new Exceptions.JsonApiMappingException(
+                            $"The 'included' array would contain more than {_options.MaxIncludedResources} resources, " +
+                            $"exceeding the configured limit ({nameof(JsonApiSerializerOptions.MaxIncludedResources)}).");
+                    }
+
                     included.Add(BuildResource(related));
                 }
 
-                WalkIncludes(related, childNode, visited, included);
+                WalkIncludes(related, childNode, visited, included, depth + 1);
             }
         }
     }

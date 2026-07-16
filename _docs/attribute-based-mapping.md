@@ -132,3 +132,111 @@ public class Article
 
 For fetching the related resources' own attributes into the response (not just their id/type),
 see [compound-documents.md](compound-documents.md).
+
+## Document-level `meta`/`links`
+
+The top-level JSON:API document's own `meta`/`links` (e.g. pagination info, a top-level `self`
+link) aren't POCO-driven at all — they're supplied per call via `JsonApiDocumentOptions`, passed
+to `Serialize`/`SerializeCollection`:
+
+```csharp
+var options = new JsonApiDocumentOptions
+{
+    Meta = new MetaObject { ["requestId"] = "abc-123" },
+    Links = new LinksObject { ["self"] = "/articles/1" },
+};
+
+string json = serializer.Serialize(article, options);
+```
+
+This is the same mechanism regardless of mapping mode. See
+[`../samples/Jsonapinator.Sample.AttributeBased/ArticlesController.cs`](../samples/Jsonapinator.Sample.AttributeBased/ArticlesController.cs)'s
+`with-document-meta` action for a runnable example.
+
+## Resource-level and relationship-level `meta`/`links`
+
+Unlike document-level `meta`/`links`, these live directly on the POCO — no
+`JsonApiDocumentOptions` needed, they're populated automatically on every `Serialize`/
+`Deserialize` call.
+
+| Attribute | Target | Required | Description |
+|---|---|---|---|
+| `[JsonApiMeta]` | property of type `MetaObject` | No, at most one | Lifts the property's value onto the resource object's own `"meta"`. |
+| `[JsonApiLinks]` | property of type `LinksObject` | No, at most one | Lifts the property's value onto the resource object's own `"links"`. |
+| `[JsonApiRelationshipMeta(string relationshipName)]` | property of type `MetaObject` | No, at most one per relationship | Lifts the property's value onto the named relationship object's own `"meta"`. |
+| `[JsonApiRelationshipLinks(string relationshipName)]` | property of type `LinksObject` | No, at most one per relationship | Lifts the property's value onto the named relationship object's own `"links"`. |
+
+`relationshipName` must match the `name` passed to `[JsonApiRelationship(name, kind)]` on the
+actual relationship property — `Resolve` throws `JsonApiMappingException` if it doesn't match any
+declared relationship, or if the attributed property's type isn't exactly `MetaObject`/
+`LinksObject`.
+
+```csharp
+[JsonApiResource("articles")]
+public class Article
+{
+    [JsonApiId]
+    public string Id { get; set; } = "";
+
+    [JsonApiRelationship("comments", RelationshipKind.ToMany)]
+    public List<Comment> Comments { get; set; } = new();
+
+    // The resource object's own "meta"/"links" — e.g. { "data": { ..., "meta": {...}, "links": {...} } }.
+    [JsonApiMeta]
+    public MetaObject? ArticleMeta { get; set; }
+
+    [JsonApiLinks]
+    public LinksObject? ArticleLinks { get; set; }
+
+    // The "comments" relationship object's own "meta"/"links" — distinct from any individual
+    // Comment's meta/links, and distinct from ArticleMeta/ArticleLinks above. One meta/links
+    // object per relationship as a whole, matching the JSON:API relationship-object shape (not
+    // per related resource).
+    [JsonApiRelationshipMeta("comments")]
+    public MetaObject? CommentsMeta { get; set; }
+
+    [JsonApiRelationshipLinks("comments")]
+    public LinksObject? CommentsLinks { get; set; }
+}
+```
+
+On deserialize, mapping is presence-based like attributes and relationships: if the incoming JSON
+omits a resource's/relationship's `meta`/`links`, the corresponding POCO property is left
+untouched (so a PATCH-style partial payload can't clobber it).
+
+See
+[`../samples/Jsonapinator.Sample.AttributeBased/Article.cs`](../samples/Jsonapinator.Sample.AttributeBased/Article.cs)
+for the full runnable example.
+
+## Per-instance `"type"` override — `[JsonApiType]`
+
+`[JsonApiResource(string resourceType)]` declares a single, static resource type name for every
+instance of a class. `[JsonApiType]` layers a per-instance override on top of that default —
+useful for a discriminator-style CLR type shared by several JSON:API resource types (e.g. one
+`Attachment` class that emits `"videos"` for some instances and `"images"` for others, based on
+data rather than CLR type):
+
+```csharp
+[JsonApiResource("attachments")]
+public class Attachment
+{
+    [JsonApiId]
+    public string Id { get; set; } = "";
+
+    [JsonApiType]
+    public string? AttachmentType { get; set; }
+}
+```
+
+- The property must be of type exactly `string`; `Resolve` throws `JsonApiMappingException` if
+  another type is used, or if more than one property is decorated with `[JsonApiType]`.
+- When the property's runtime value is null or empty for a given instance, the normal
+  `[JsonApiResource]` name is used instead — the override is opt-in per instance, not a
+  replacement for the class-level default.
+- On deserialize, the property is populated from the incoming resource's actual `"type"` string
+  (for the primary resource, and for every related resource reached via a relationship —
+  including identifier-only stubs when no matching entry appears in `"included"`).
+
+See
+[`../samples/Jsonapinator.Sample.AttributeBased/Article.cs`](../samples/Jsonapinator.Sample.AttributeBased/Article.cs)'s
+`Attachment` class for the full runnable example.

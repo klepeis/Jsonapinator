@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Jsonapinator.Exceptions;
 using Jsonapinator.Metadata;
 
@@ -27,6 +28,103 @@ public class ResourceTypeResolverTests
 
         [JsonApiRelationship("comments", RelationshipKind.ToMany)]
         public List<Comment> Comments { get; set; } = new();
+
+        [JsonApiMeta]
+        public MetaObject ResourceMeta { get; set; } = new();
+
+        [JsonApiLinks]
+        public LinksObject ResourceLinks { get; set; } = new();
+
+        [JsonApiRelationshipMeta("comments")]
+        public MetaObject CommentsRelationshipMeta { get; set; } = new();
+
+        [JsonApiRelationshipLinks("comments")]
+        public LinksObject CommentsRelationshipLinks { get; set; } = new();
+
+        [JsonApiType]
+        public string? TypeOverride { get; set; }
+    }
+
+    [JsonApiResource("bad-type-type")]
+    private sealed class WrongTypeType
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiType]
+        public int TypeOverride { get; set; }
+    }
+
+    [JsonApiResource("duplicate-type")]
+    private sealed class DuplicateType
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiType]
+        public string? TypeOne { get; set; }
+
+        [JsonApiType]
+        public string? TypeTwo { get; set; }
+    }
+
+    [JsonApiResource("bad-meta-type")]
+    private sealed class WrongMetaType
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiMeta]
+        public string Meta { get; set; } = "";
+    }
+
+    [JsonApiResource("bad-links-type")]
+    private sealed class WrongLinksType
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiLinks]
+        public string Links { get; set; } = "";
+    }
+
+    [JsonApiResource("duplicate-meta")]
+    private sealed class DuplicateMeta
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiMeta]
+        public MetaObject MetaOne { get; set; } = new();
+
+        [JsonApiMeta]
+        public MetaObject MetaTwo { get; set; } = new();
+    }
+
+    [JsonApiResource("bad-relationship-meta-name")]
+    private sealed class BadRelationshipMetaName
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("author", RelationshipKind.ToOne)]
+        public Person? Author { get; set; }
+
+        [JsonApiRelationshipMeta("nonexistent")]
+        public MetaObject AuthorMeta { get; set; } = new();
+    }
+
+    [JsonApiResource("bad-relationship-meta-type")]
+    private sealed class BadRelationshipMetaType
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("author", RelationshipKind.ToOne)]
+        public Person? Author { get; set; }
+
+        [JsonApiRelationshipMeta("author")]
+        public string AuthorMeta { get; set; } = "";
     }
 
     [JsonApiResource("people")]
@@ -192,5 +290,128 @@ public class ResourceTypeResolverTests
         var metadata = resolver.Resolve(clrType);
 
         Assert.NotNull(metadata.IdProperty);
+    }
+
+    [Fact]
+    public void Resolve_finds_the_resource_level_meta_property()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.ResourceMeta), metadata.MetaProperty?.Name);
+    }
+
+    [Fact]
+    public void Resolve_finds_the_resource_level_links_property()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.ResourceLinks), metadata.LinksProperty?.Name);
+    }
+
+    [Fact]
+    public void Resolve_leaves_meta_and_links_properties_null_when_not_declared()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Person));
+
+        Assert.Null(metadata.MetaProperty);
+        Assert.Null(metadata.LinksProperty);
+    }
+
+    [Fact]
+    public void Resolve_throws_when_JsonApiMeta_property_type_is_not_MetaObject()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(WrongMetaType)));
+    }
+
+    [Fact]
+    public void Resolve_throws_when_JsonApiLinks_property_type_is_not_LinksObject()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(WrongLinksType)));
+    }
+
+    [Fact]
+    public void Resolve_throws_when_multiple_properties_are_decorated_with_JsonApiMeta()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(DuplicateMeta)));
+    }
+
+    [Fact]
+    public void Resolve_finds_the_relationship_level_meta_and_links_properties()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        var comments = Assert.Single(metadata.Relationships, r => r.Name == "comments");
+        Assert.Equal(nameof(Article.CommentsRelationshipMeta), comments.MetaProperty?.Name);
+        Assert.Equal(nameof(Article.CommentsRelationshipLinks), comments.LinksProperty?.Name);
+
+        var author = Assert.Single(metadata.Relationships, r => r.Name == "author");
+        Assert.Null(author.MetaProperty);
+        Assert.Null(author.LinksProperty);
+    }
+
+    [Fact]
+    public void Resolve_throws_when_JsonApiRelationshipMeta_references_an_unknown_relationship()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(BadRelationshipMetaName)));
+    }
+
+    [Fact]
+    public void Resolve_throws_when_JsonApiRelationshipMeta_property_type_is_not_MetaObject()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(BadRelationshipMetaType)));
+    }
+
+    [Fact]
+    public void Resolve_finds_the_type_override_property()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        Assert.Equal(nameof(Article.TypeOverride), metadata.TypeProperty?.Name);
+    }
+
+    [Fact]
+    public void Resolve_leaves_type_override_property_null_when_not_declared()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Person));
+
+        Assert.Null(metadata.TypeProperty);
+    }
+
+    [Fact]
+    public void Resolve_throws_when_JsonApiType_property_type_is_not_string()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(WrongTypeType)));
+    }
+
+    [Fact]
+    public void Resolve_throws_when_multiple_properties_are_decorated_with_JsonApiType()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(DuplicateType)));
     }
 }

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
+using Jsonapinator.Document;
 using Jsonapinator.Exceptions;
 
 namespace Jsonapinator.Metadata;
@@ -67,6 +68,12 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             })
             .ToList();
 
+        var metaProperty = FindSingleTypedProperty<JsonApiMetaAttribute>(properties, clrType, typeof(MetaObject));
+        var linksProperty = FindSingleTypedProperty<JsonApiLinksAttribute>(properties, clrType, typeof(LinksObject));
+        var typeProperty = FindSingleTypedProperty<JsonApiTypeAttribute>(properties, clrType, typeof(string));
+
+        relationships = ApplyRelationshipMetaAndLinks(properties, clrType, relationships);
+
         return new ResourceMetadata
         {
             ClrType = clrType,
@@ -74,7 +81,116 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             IdProperty = idProperty,
             Attributes = attributes,
             Relationships = relationships,
+            MetaProperty = metaProperty,
+            LinksProperty = linksProperty,
+            TypeProperty = typeProperty,
         };
+    }
+
+    private static PropertyInfo? FindSingleTypedProperty<TAttribute>(PropertyInfo[] properties, Type clrType, Type requiredType)
+        where TAttribute : Attribute
+    {
+        var candidates = properties.Where(p => p.IsDefined(typeof(TAttribute))).ToList();
+
+        if (candidates.Count > 1)
+        {
+            throw new JsonApiMappingException(
+                $"Type '{clrType.Name}' must have at most one property decorated with [{typeof(TAttribute).Name.Replace("Attribute", "")}].");
+        }
+
+        var property = candidates.SingleOrDefault();
+        if (property is null)
+        {
+            return null;
+        }
+
+        if (property.PropertyType != requiredType)
+        {
+            throw new JsonApiMappingException(
+                $"Property '{clrType.Name}.{property.Name}' is decorated with [{typeof(TAttribute).Name.Replace("Attribute", "")}] " +
+                $"but its type is '{property.PropertyType.Name}'; it must be exactly '{requiredType.Name}'.");
+        }
+
+        return property;
+    }
+
+    private static List<RelationshipMetadata> ApplyRelationshipMetaAndLinks(
+        PropertyInfo[] properties, Type clrType, List<RelationshipMetadata> relationships)
+    {
+        var result = new List<RelationshipMetadata>(relationships.Count);
+
+        foreach (var relationship in relationships)
+        {
+            var metaProperty = FindRelationshipTypedProperty<JsonApiRelationshipMetaAttribute>(
+                properties, clrType, relationship.Name, typeof(MetaObject), a => a.RelationshipName);
+            var linksProperty = FindRelationshipTypedProperty<JsonApiRelationshipLinksAttribute>(
+                properties, clrType, relationship.Name, typeof(LinksObject), a => a.RelationshipName);
+
+            result.Add(new RelationshipMetadata
+            {
+                Property = relationship.Property,
+                Name = relationship.Name,
+                Kind = relationship.Kind,
+                RelatedClrType = relationship.RelatedClrType,
+                MetaProperty = metaProperty,
+                LinksProperty = linksProperty,
+            });
+        }
+
+        var relationshipNames = new HashSet<string>(relationships.Select(r => r.Name));
+        ValidateRelationshipReferences<JsonApiRelationshipMetaAttribute>(properties, clrType, relationshipNames, a => a.RelationshipName);
+        ValidateRelationshipReferences<JsonApiRelationshipLinksAttribute>(properties, clrType, relationshipNames, a => a.RelationshipName);
+
+        return result;
+    }
+
+    private static PropertyInfo? FindRelationshipTypedProperty<TAttribute>(
+        PropertyInfo[] properties, Type clrType, string relationshipName, Type requiredType, Func<TAttribute, string> getRelationshipName)
+        where TAttribute : Attribute
+    {
+        var candidates = properties
+            .Where(p => p.IsDefined(typeof(TAttribute)) && getRelationshipName(p.GetCustomAttribute<TAttribute>()!) == relationshipName)
+            .ToList();
+
+        if (candidates.Count > 1)
+        {
+            throw new JsonApiMappingException(
+                $"Type '{clrType.Name}' must have at most one property decorated with " +
+                $"[{typeof(TAttribute).Name.Replace("Attribute", "")}(\"{relationshipName}\")].");
+        }
+
+        var property = candidates.SingleOrDefault();
+        if (property is null)
+        {
+            return null;
+        }
+
+        if (property.PropertyType != requiredType)
+        {
+            throw new JsonApiMappingException(
+                $"Property '{clrType.Name}.{property.Name}' is decorated with " +
+                $"[{typeof(TAttribute).Name.Replace("Attribute", "")}(\"{relationshipName}\")] but its type is " +
+                $"'{property.PropertyType.Name}'; it must be exactly '{requiredType.Name}'.");
+        }
+
+        return property;
+    }
+
+    private static void ValidateRelationshipReferences<TAttribute>(
+        PropertyInfo[] properties, Type clrType, HashSet<string> relationshipNames, Func<TAttribute, string> getRelationshipName)
+        where TAttribute : Attribute
+    {
+        foreach (var property in properties.Where(p => p.IsDefined(typeof(TAttribute))))
+        {
+            var relationshipName = getRelationshipName(property.GetCustomAttribute<TAttribute>()!);
+            if (!relationshipNames.Contains(relationshipName))
+            {
+                throw new JsonApiMappingException(
+                    $"Property '{clrType.Name}.{property.Name}' is decorated with " +
+                    $"[{typeof(TAttribute).Name.Replace("Attribute", "")}(\"{relationshipName}\")] but no relationship named " +
+                    $"'{relationshipName}' exists on '{clrType.Name}'.");
+            }
+        }
     }
 
     private static Type GetElementType(Type propertyType, Type declaringType, string propertyName)
