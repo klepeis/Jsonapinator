@@ -37,6 +37,72 @@ public class Article
 }
 ```
 
+### Attribute reference
+
+All four attributes live in the `Jsonapinator.Attributes` namespace. `[JsonApiResource]` and
+`[JsonApiId]` are required on every mapped type; `[JsonApiAttribute]` and `[JsonApiRelationship]`
+are opt-in per property (V1 does not map properties by convention — an unmarked property is
+simply never serialized/deserialized).
+
+| Attribute | Target | Required | Description |
+|---|---|---|---|
+| `[JsonApiResource(string resourceType)]` | class | Yes, exactly one | Declares the JSON:API resource type name (the `"type"` member) for the class. |
+| `[JsonApiId]` | property | Yes, exactly one | Marks the property that supplies the resource's `"id"`. Supported CLR types: `string`, `Guid`, `int`, `long` — always serialized as a JSON string per spec, parsed back to the declared type on deserialize. |
+| `[JsonApiAttribute]` | property | No, one per attribute | Marks a property as a JSON:API `"attributes"` member. JSON name defaults to camelCase of the property name; override with `[JsonPropertyName]`. |
+| `[JsonApiRelationship(string name, RelationshipKind kind)]` | property | No, one per relationship | Marks a navigation property as a JSON:API `"relationships"` member. `kind` is `RelationshipKind.ToOne` (property holds a single related object or `null`) or `RelationshipKind.ToMany` (property holds `List<T>` or `T[]`). |
+
+**`[JsonApiResource]`** — put it on the class, passing the plural resource type name used in JSON:API URLs and the `"type"` member:
+
+```csharp
+[JsonApiResource("articles")]
+public class Article { /* ... */ }
+```
+
+**`[JsonApiId]`** — exactly one property per class. Any of the four supported id types works:
+
+```csharp
+public class Article
+{
+    [JsonApiId]
+    public string Id { get; set; } = "";
+}
+
+public class Order
+{
+    [JsonApiId]
+    public Guid Id { get; set; } // serializes as e.g. "11111111-1111-1111-1111-111111111111"
+}
+```
+
+**`[JsonApiAttribute]`** — put it on each scalar/value property you want serialized. A property
+without this attribute is silently skipped (not an error) — useful for internal/computed fields
+you don't want exposed:
+
+```csharp
+public class Article
+{
+    [JsonApiAttribute]
+    public string Title { get; set; } = "";
+
+    // Not marked -> never appears in the JSON:API document.
+    public DateTime LastIndexedAtUtc { get; set; }
+}
+```
+
+**`[JsonApiRelationship]`** — put it on navigation properties. The property's CLR type (or its
+element type, for to-many) must itself be `[JsonApiResource]`-decorated:
+
+```csharp
+public class Article
+{
+    [JsonApiRelationship("author", RelationshipKind.ToOne)]
+    public Person? Author { get; set; }
+
+    [JsonApiRelationship("comments", RelationshipKind.ToMany)]
+    public List<Comment> Comments { get; set; } = new();
+}
+```
+
 Serialize and deserialize via `JsonApiSerializer`:
 
 ```csharp
@@ -77,9 +143,13 @@ string json = serializer.Serialize(article, options);
 ### Compound documents (`include`)
 
 Pass dot-notation relationship paths via `JsonApiDocumentOptions.Include` to populate the
-top-level `"included"` array. Related objects are read directly off the POCO's relationship
-properties, which are assumed to already be loaded (e.g. via EF Core `.Include()` before calling
-`Serialize`) — Jsonapinator does not lazy-load them itself:
+top-level `"included"` array. Related objects are read via plain reflection
+(`PropertyInfo.GetValue`) directly off the POCO's relationship properties — Jsonapinator has no
+dependency on Entity Framework Core or any other ORM/database library (the core project has zero
+`PackageReference`s beyond the .NET 8 BCL) and does not know or care where the object graph came
+from. It simply assumes the relationship properties are already populated in memory by the time
+`Serialize` is called (e.g. via EF Core `.Include()`, a manual query, an in-memory fixture, etc.)
+— it does not lazy-load anything itself:
 
 ```csharp
 var options = new JsonApiDocumentOptions { Include = new[] { "author", "comments.author" } };
