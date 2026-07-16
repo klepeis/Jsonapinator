@@ -93,6 +93,7 @@ public sealed class ConventionResourceTypeResolver : IResourceTypeResolver
                 RelatedClrType = candidate.RelatedClrType,
                 MetaProperty = relMeta,
                 LinksProperty = relLinks,
+                PolymorphicDerivedTypes = PolymorphismSupport.ResolveDerivedTypes(candidate.RelatedClrType),
             });
         }
 
@@ -102,6 +103,7 @@ public sealed class ConventionResourceTypeResolver : IResourceTypeResolver
             {
                 Property = p,
                 JsonName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? PropertyNaming.ToCamelCase(p.Name),
+                IsPolymorphic = PolymorphismSupport.IsPolymorphic(p.PropertyType),
             })
             .ToList();
 

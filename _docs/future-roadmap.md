@@ -6,7 +6,9 @@ resource-, and relationship-level links and meta (POCO-driven via `[JsonApiMeta]
 `[JsonApiRelationshipMeta]`/`[JsonApiRelationshipLinks]` or the `Meta`/`Links`/`{Rel}Meta`/
 `{Rel}Links` naming convention — see `_docs/attribute-based-mapping.md` and
 `_docs/convention-based-mapping.md`), a per-instance `"type"` override (`[JsonApiType]` or the
-`Type` naming convention), configurable depth/size limits on relationship hydration
+`Type` naming convention), polymorphic to-many/to-one relationships and polymorphic attribute
+values (plain `System.Text.Json` `[JsonPolymorphic]`/`[JsonDerivedType]` — see
+`_docs/polymorphism.md`), configurable depth/size limits on relationship hydration
 (`JsonApiSerializerOptions`), and top-level errors. Everything below is explicitly out of scope
 for V1 and deferred to later phases.
 
@@ -31,7 +33,7 @@ larger feature work with no forcing function yet.
 | **P3** | [`Include` not wired through `JsonApiOutputFormatter`](#jsonapinatoraspnetcore--deferred-concerns) / [PATCH-style partial update not wired through `JsonApiInputFormatter`](#jsonapinatoraspnetcore--deferred-concerns) | Real feature gaps with a documented workaround (the DI escape hatch) already in place via the samples — larger, deliberate design work, not urgent. |
 | **P3** | [Strict 415/406 content-negotiation parameter rejection](#phase-3--extensions-and-profiles) | Spec-compliance nice-to-have; no one has hit this in practice yet. |
 | **P3** | Sparse fieldsets, sorting, pagination, filtering ([Phase 2](#phase-2--query-string-driven-features)) | Larger, deliberate feature work — each already has a documented seam, build when there's a concrete consumer need. |
-| **P3** | [Client-generated ids](#additional-feature-gaps-not-yet-in-phase-23-above), [polymorphic to-many relationships](#additional-feature-gaps-not-yet-in-phase-23-above), [omit-relationship-from-output](#additional-feature-gaps-not-yet-in-phase-23-above) | Smaller, self-contained feature gaps — pick up opportunistically alongside related work (e.g. omit-relationship pairs naturally with sparse fieldsets). |
+| **P3** | [Client-generated ids](#additional-feature-gaps-not-yet-in-phase-23-above), [omit-relationship-from-output](#additional-feature-gaps-not-yet-in-phase-23-above) | Smaller, self-contained feature gaps — pick up opportunistically alongside related work (e.g. omit-relationship pairs naturally with sparse fieldsets). |
 | **P3** | [Composite/fallback resolver](#known-extension-points), [convention-resolver ambiguity/cycle detection](#additional-feature-gaps-not-yet-in-phase-23-above) | Extension points with no current consumer need — cheap to build later, not worth speculative effort now. |
 | **P3** | Atomic operations, extensions/profiles negotiation ([Phase 3](#phase-3--extensions-and-profiles)) | Largest scope items, explicitly flagged as candidates for separate packages rather than growing the core. |
 
@@ -150,11 +152,17 @@ Findings from a broad code review (2026-07), documentation only — no code chan
 - **No idempotency guard against calling `AddJsonApi()` twice** (see the ASP.NET Core deferred
   concerns above) — flagged here too since double-registered exception handlers could, in an edge
   case, attempt to write to an already-started response.
-- **Positive finding, worth preserving**: reflection in both `ResourceTypeResolver` and
+- **Positive finding, worth preserving (updated)**: reflection in both `ResourceTypeResolver` and
   `ConventionResourceTypeResolver` only ever operates on CLR types supplied by the consumer's own
-  code — never a type name taken from the wire (`ResourceMapper.Map`/`Map(Type, ...)` always take
-  the target CLR type from the caller). The library is not exposed to the classic "polymorphic
-  type resolution from JSON" insecure-deserialization pattern.
+  code — never an arbitrary type name taken from the wire (`ResourceMapper.Map`/`Map(Type, ...)`
+  always take the target CLR type from the caller). Polymorphic relationships (see
+  `_docs/polymorphism.md`) do let a wire value (a resource identifier's `"type"` string)
+  participate in selecting a CLR type for the first time, but only in a closed, safe form: the
+  result is always one of the finite `[JsonDerivedType]`-registered subtypes the consumer
+  explicitly allow-listed at compile time on the relationship's own declared base type — never
+  arbitrary reflection/type-name resolution. The library is still not exposed to the classic
+  "polymorphic type resolution from JSON" insecure-deserialization pattern (unbounded/attacker-
+  chosen type names), just to a bounded, compile-time-declared subset of it.
 
 ## Performance considerations
 
@@ -218,11 +226,14 @@ Findings from a broad code review (2026-07), documentation only — no code chan
 - No way to omit a relationship from output entirely (as opposed to serializing `data: null`) —
   adjacent to, but distinct from, the already-deferred sparse-fieldsets item.
 - No client-generated-id support (the spec's client-ID section).
-- No polymorphic/heterogeneous to-many relationship support — `RelationshipMetadata.RelatedClrType`
-  is a single CLR type per relationship property today. Not solved by `[JsonApiType]`/the `Type`
-  naming convention (see `_docs/attribute-based-mapping.md`/`convention-based-mapping.md`), which
-  only lets a *single* CLR type emit a varying JSON:API `"type"` name per instance — it doesn't
-  let a relationship property hold instances of *multiple different CLR types*.
+- ~~No polymorphic/heterogeneous to-many relationship support~~ — **done.** A relationship's
+  declared `RelatedClrType` can now be a polymorphic base class (plain `System.Text.Json`
+  `[JsonPolymorphic]`/`[JsonDerivedType]` attributes, no Jsonapinator-specific vocabulary);
+  `RelationshipMetadata.PolymorphicDerivedTypes` maps each JSON:API type-name discriminator to its
+  CLR subtype, resolved lazily in `ResourceMapper.BuildRelatedInstance`. Distinct from
+  `[JsonApiType]`/the `Type` naming convention (see `_docs/attribute-based-mapping.md`/
+  `convention-based-mapping.md`), which only lets a *single* CLR type emit a varying JSON:API
+  `"type"` name per instance — see `_docs/polymorphism.md` for both features side by side.
 - No ambiguity/cycle detection at metadata-build time for `ConventionResourceTypeResolver` on
   self-referential or mutually-referential convention types — could silently misclassify in
   unusual shapes.

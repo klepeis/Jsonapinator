@@ -43,6 +43,12 @@ public class ResourceTypeResolverTests
 
         [JsonApiType]
         public string? TypeOverride { get; set; }
+
+        [JsonApiAttribute]
+        public Shape? FeaturedShape { get; set; }
+
+        [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
+        public List<Attachment> Attachments { get; set; } = new();
     }
 
     [JsonApiResource("bad-type-type")]
@@ -139,6 +145,42 @@ public class ResourceTypeResolverTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+    }
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(Circle), "circle")]
+    [JsonDerivedType(typeof(Square), "square")]
+    private abstract class Shape
+    {
+    }
+
+    private sealed class Circle : Shape
+    {
+        public double Radius { get; set; }
+    }
+
+    private sealed class Square : Shape
+    {
+        public double Side { get; set; }
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Video), "videos")]
+    [JsonDerivedType(typeof(Image), "images")]
+    private abstract class Attachment
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+    }
+
+    [JsonApiResource("videos")]
+    private sealed class Video : Attachment
+    {
+    }
+
+    [JsonApiResource("images")]
+    private sealed class Image : Attachment
+    {
     }
 
     private sealed class MissingResourceAttribute
@@ -413,5 +455,51 @@ public class ResourceTypeResolverTests
         var resolver = new ResourceTypeResolver();
 
         Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(DuplicateType)));
+    }
+
+    [Fact]
+    public void Resolve_marks_an_attribute_as_polymorphic_when_its_declared_type_is_JsonPolymorphic()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        var shape = Assert.Single(metadata.Attributes, a => a.Property.Name == nameof(Article.FeaturedShape));
+        Assert.True(shape.IsPolymorphic);
+    }
+
+    [Fact]
+    public void Resolve_does_not_mark_a_plain_attribute_as_polymorphic()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        var title = Assert.Single(metadata.Attributes, a => a.Property.Name == nameof(Article.Title));
+        Assert.False(title.IsPolymorphic);
+    }
+
+    [Fact]
+    public void Resolve_maps_derived_type_discriminators_for_a_polymorphic_relationship()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        var attachments = Assert.Single(metadata.Relationships, r => r.Name == "attachments");
+        Assert.NotNull(attachments.PolymorphicDerivedTypes);
+        Assert.Equal(typeof(Video), attachments.PolymorphicDerivedTypes!["videos"]);
+        Assert.Equal(typeof(Image), attachments.PolymorphicDerivedTypes["images"]);
+    }
+
+    [Fact]
+    public void Resolve_leaves_PolymorphicDerivedTypes_null_for_a_non_polymorphic_relationship()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var metadata = resolver.Resolve(typeof(Article));
+
+        var comments = Assert.Single(metadata.Relationships, r => r.Name == "comments");
+        Assert.Null(comments.PolymorphicDerivedTypes);
     }
 }

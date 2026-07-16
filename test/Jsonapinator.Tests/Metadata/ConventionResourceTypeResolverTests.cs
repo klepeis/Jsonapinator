@@ -74,6 +74,43 @@ public class ConventionResourceTypeResolverTests
         public LinksObject? CommentsLinks { get; set; }
 
         public string? Type { get; set; }
+
+        public Shape? FeaturedShape { get; set; }
+
+        public List<Attachment> Attachments { get; set; } = new();
+    }
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(Circle), "circle")]
+    [JsonDerivedType(typeof(Square), "square")]
+    private abstract class Shape
+    {
+    }
+
+    private sealed class Circle : Shape
+    {
+        public double Radius { get; set; }
+    }
+
+    private sealed class Square : Shape
+    {
+        public double Side { get; set; }
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Video), "videos")]
+    [JsonDerivedType(typeof(Image), "images")]
+    private abstract class Attachment
+    {
+        public string Id { get; set; } = "";
+    }
+
+    private sealed class Video : Attachment
+    {
+    }
+
+    private sealed class Image : Attachment
+    {
     }
 
     private sealed class WrongTypedMetaAndLinks
@@ -333,6 +370,44 @@ public class ConventionResourceTypeResolverTests
 
         Assert.Null(metadata.TypeProperty);
         Assert.Contains(metadata.Attributes, a => a.Property.Name == "Type");
+    }
+
+    [Fact]
+    public void Resolve_marks_an_attribute_as_polymorphic_when_its_declared_type_is_JsonPolymorphic()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        var shape = Assert.Single(metadata.Attributes, a => a.Property.Name == nameof(Article.FeaturedShape));
+        Assert.True(shape.IsPolymorphic);
+    }
+
+    [Fact]
+    public void Resolve_does_not_mark_a_plain_attribute_as_polymorphic()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        var title = Assert.Single(metadata.Attributes, a => a.Property.Name == nameof(Article.Title));
+        Assert.False(title.IsPolymorphic);
+    }
+
+    [Fact]
+    public void Resolve_maps_derived_type_discriminators_for_a_polymorphic_relationship()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        var attachments = Assert.Single(metadata.Relationships, r => r.Property.Name == nameof(Article.Attachments));
+        Assert.NotNull(attachments.PolymorphicDerivedTypes);
+        Assert.Equal(typeof(Video), attachments.PolymorphicDerivedTypes!["videos"]);
+        Assert.Equal(typeof(Image), attachments.PolymorphicDerivedTypes["images"]);
+    }
+
+    [Fact]
+    public void Resolve_leaves_PolymorphicDerivedTypes_null_for_a_non_polymorphic_relationship()
+    {
+        var metadata = _resolver.Resolve(typeof(Article));
+
+        var comments = Assert.Single(metadata.Relationships, r => r.Property.Name == nameof(Article.Comments));
+        Assert.Null(comments.PolymorphicDerivedTypes);
     }
 
     [Fact]

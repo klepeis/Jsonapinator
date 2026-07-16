@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
 using Jsonapinator.Deserialization;
 using Jsonapinator.Document;
@@ -93,6 +94,42 @@ public class ResourceMapperTests
 
         [JsonApiRelationship("attachment", RelationshipKind.ToOne)]
         public Media? Attachment { get; set; }
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Video), "videos")]
+    [JsonDerivedType(typeof(Image), "images")]
+    private abstract class Attachment
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+    }
+
+    [JsonApiResource("videos")]
+    private sealed class Video : Attachment
+    {
+        [JsonApiAttribute]
+        public int DurationSeconds { get; set; }
+    }
+
+    [JsonApiResource("images")]
+    private sealed class Image : Attachment
+    {
+        [JsonApiAttribute]
+        public string Resolution { get; set; } = "";
+    }
+
+    [JsonApiResource("gallery-articles")]
+    private sealed class GalleryArticle
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
+        public List<Attachment> Attachments { get; set; } = new();
+
+        [JsonApiRelationship("primaryAttachment", RelationshipKind.ToOne)]
+        public Attachment? PrimaryAttachment { get; set; }
     }
 
     [JsonApiResource("guid-things")]
@@ -468,5 +505,97 @@ public class ResourceMapperTests
         var holder = _mapper.Map<AttachmentHolder>(document.Data!.Single!, document.Included);
 
         Assert.Equal("images", holder.Attachment!.MediaType);
+    }
+
+    [Fact]
+    public void Map_resolves_a_to_many_polymorphic_relationship_to_the_correct_concrete_subtypes()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"gallery-articles","id":"1","relationships":{"attachments":{"data":[
+                {"type":"videos","id":"1"},{"type":"images","id":"2"}
+            ]}}}}
+            """);
+
+        var article = _mapper.Map<GalleryArticle>(resource);
+
+        Assert.IsType<Video>(article.Attachments[0]);
+        Assert.IsType<Image>(article.Attachments[1]);
+        Assert.Equal("1", article.Attachments[0].Id);
+        Assert.Equal("2", article.Attachments[1].Id);
+    }
+
+    [Fact]
+    public void Map_resolves_a_to_one_polymorphic_relationship_to_the_correct_concrete_subtype()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"gallery-articles","id":"1","relationships":{
+                "primaryAttachment":{"data":{"type":"videos","id":"1"}}
+            }}}
+            """);
+
+        var article = _mapper.Map<GalleryArticle>(resource);
+
+        Assert.IsType<Video>(article.PrimaryAttachment);
+    }
+
+    [Fact]
+    public void Map_resolves_the_correct_polymorphic_subtype_for_an_identifier_only_stub()
+    {
+        // No "included" array at all -- proves the discriminator alone (no full attributes) is
+        // enough to pick the right concrete type.
+        var resource = ReadResource("""
+            {"data":{"type":"gallery-articles","id":"1","relationships":{
+                "primaryAttachment":{"data":{"type":"images","id":"9"}}
+            }}}
+            """);
+
+        var article = _mapper.Map<GalleryArticle>(resource);
+
+        Assert.IsType<Image>(article.PrimaryAttachment);
+        Assert.Equal("9", article.PrimaryAttachment!.Id);
+    }
+
+    [Fact]
+    public void Map_hydrates_a_polymorphic_relationship_subtypes_own_attributes_from_included()
+    {
+        var root = new JsonObject
+        {
+            ["type"] = "gallery-articles",
+            ["id"] = "1",
+            ["relationships"] = new JsonObject
+            {
+                ["primaryAttachment"] = new JsonObject
+                {
+                    ["data"] = new JsonObject { ["type"] = "videos", ["id"] = "1" },
+                },
+            },
+        };
+        var included = new JsonArray
+        {
+            new JsonObject
+            {
+                ["type"] = "videos",
+                ["id"] = "1",
+                ["attributes"] = new JsonObject { ["durationSeconds"] = 42 },
+            },
+        };
+        var documentJson = new JsonObject { ["data"] = root, ["included"] = included }.ToJsonString();
+
+        var document = new JsonApiDocumentReader().Read(documentJson);
+        var article = _mapper.Map<GalleryArticle>(document.Data!.Single!, document.Included);
+
+        Assert.Equal(42, ((Video)article.PrimaryAttachment!).DurationSeconds);
+    }
+
+    [Fact]
+    public void Map_throws_when_a_polymorphic_relationships_discriminator_has_no_matching_JsonDerivedType()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"gallery-articles","id":"1","relationships":{
+                "primaryAttachment":{"data":{"type":"audio-clips","id":"1"}}
+            }}}
+            """);
+
+        Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(() => _mapper.Map<GalleryArticle>(resource));
     }
 }

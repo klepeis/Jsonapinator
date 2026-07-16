@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Jsonapinator.Attributes;
 using Jsonapinator.Document;
@@ -81,6 +82,65 @@ public class ResourceGraphBuilderTests
 
         [JsonApiType]
         public string? MediaType { get; set; }
+    }
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(Circle), "circle")]
+    [JsonDerivedType(typeof(Square), "square")]
+    private abstract class Shape
+    {
+    }
+
+    private sealed class Circle : Shape
+    {
+        public double Radius { get; set; }
+    }
+
+    private sealed class Square : Shape
+    {
+        public double Side { get; set; }
+    }
+
+    [JsonApiResource("shape-holders")]
+    private sealed class ShapeHolder
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public Shape? FeaturedShape { get; set; }
+
+        [JsonApiAttribute]
+        public List<Shape> Shapes { get; set; } = new();
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Video), "videos")]
+    [JsonDerivedType(typeof(Image), "images")]
+    private abstract class Attachment
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+    }
+
+    [JsonApiResource("videos")]
+    private sealed class Video : Attachment
+    {
+    }
+
+    [JsonApiResource("images")]
+    private sealed class Image : Attachment
+    {
+    }
+
+    [JsonApiResource("attachment-holders")]
+    private sealed class AttachmentHolder
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
+        public List<Attachment> Attachments { get; set; } = new();
     }
 
     [JsonApiResource("guid-things")]
@@ -469,5 +529,66 @@ public class ResourceGraphBuilderTests
 
         Assert.Equal("videos", _builder.BuildResource(video).Type);
         Assert.Equal("images", _builder.BuildResource(image).Type);
+    }
+
+    [Fact]
+    public void BuildResource_embeds_the_type_discriminator_for_a_single_valued_polymorphic_attribute()
+    {
+        var holder = new ShapeHolder { Id = "1", FeaturedShape = new Circle { Radius = 5 } };
+
+        var resource = _builder.BuildResource(holder);
+
+        var shapeNode = Assert.IsAssignableFrom<JsonNode>(resource.Attributes!["featuredShape"]);
+        Assert.Equal("circle", shapeNode["$type"]!.GetValue<string>());
+        Assert.Equal(5, shapeNode["Radius"]!.GetValue<double>());
+    }
+
+    [Fact]
+    public void BuildResource_leaves_a_null_polymorphic_attribute_null()
+    {
+        var holder = new ShapeHolder { Id = "1", FeaturedShape = null };
+
+        var resource = _builder.BuildResource(holder);
+
+        Assert.Null(resource.Attributes!["featuredShape"]);
+    }
+
+    [Fact]
+    public void Write_serializes_a_collection_valued_polymorphic_attribute_correctly_without_the_fix()
+    {
+        // Unlike a single-valued polymorphic property, List<Shape> itself carries no
+        // [JsonPolymorphic] attribute (only the element type Shape does) — BuildResource leaves it
+        // as a raw CLR list, and JsonApiDocumentWriter's `value.GetType()` for the list itself
+        // still matches the declared element type per element, so this already worked before the
+        // fix. Goes through the full writer (not just BuildResource) since that's where the value
+        // actually gets serialized in this case.
+        var holder = new ShapeHolder
+        {
+            Id = "1",
+            Shapes = new List<Shape> { new Circle { Radius = 1 }, new Square { Side = 2 } },
+        };
+
+        var document = _builder.BuildDocument(holder);
+        var json = new JsonApiDocumentWriter().Write(document);
+
+        var array = JsonNode.Parse(json)!["data"]!["attributes"]!["shapes"]!.AsArray();
+        Assert.Equal("circle", array[0]!["$type"]!.GetValue<string>());
+        Assert.Equal("square", array[1]!["$type"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void BuildResource_serializes_heterogeneous_polymorphic_relationship_elements_with_their_own_types()
+    {
+        var holder = new AttachmentHolder
+        {
+            Id = "1",
+            Attachments = new List<Attachment> { new Video { Id = "1" }, new Image { Id = "2" } },
+        };
+
+        var resource = _builder.BuildResource(holder);
+
+        var relationship = resource.Relationships!["attachments"];
+        Assert.Equal("videos", relationship.ManyData![0].Type);
+        Assert.Equal("images", relationship.ManyData[1].Type);
     }
 }

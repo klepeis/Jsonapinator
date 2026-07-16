@@ -240,3 +240,7 @@ public class Attachment
 See
 [`../samples/Jsonapinator.Sample.AttributeBased/Article.cs`](../samples/Jsonapinator.Sample.AttributeBased/Article.cs)'s
 `Attachment` class for the full runnable example.
+
+For relationships that need to hold *multiple different* CLR types (not just one CLR type
+emitting a varying `"type"` name), see [polymorphism.md](polymorphism.md) — System.Text.Json's own
+`[JsonPolymorphic]`/`[JsonDerivedType]` attributes, no Jsonapinator-specific vocabulary needed.

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using Jsonapinator;
 using Jsonapinator.Attributes;
 using Jsonapinator.Document;
@@ -71,6 +72,99 @@ public class JsonApiSerializerTests
         public string Id { get; set; } = "";
 
         public string? Type { get; set; }
+    }
+
+    [JsonPolymorphic]
+    [JsonDerivedType(typeof(Circle), "circle")]
+    [JsonDerivedType(typeof(Square), "square")]
+    private abstract class Shape
+    {
+    }
+
+    private sealed class Circle : Shape
+    {
+        public double Radius { get; set; }
+    }
+
+    private sealed class Square : Shape
+    {
+        public double Side { get; set; }
+    }
+
+    [JsonApiResource("shape-holders")]
+    private sealed class ShapeHolder
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public Shape? FeaturedShape { get; set; }
+    }
+
+    private sealed class ConventionShapeHolder
+    {
+        public string Id { get; set; } = "";
+
+        public Shape? FeaturedShape { get; set; }
+    }
+
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Video), "videos")]
+    [JsonDerivedType(typeof(Image), "images")]
+    private abstract class Attachment
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+    }
+
+    [JsonApiResource("videos")]
+    private sealed class Video : Attachment
+    {
+        [JsonApiAttribute]
+        public int DurationSeconds { get; set; }
+    }
+
+    [JsonApiResource("images")]
+    private sealed class Image : Attachment
+    {
+    }
+
+    [JsonApiResource("gallery-articles")]
+    private sealed class GalleryArticle
+    {
+        [JsonApiId]
+        public string Id { get; set; } = "";
+
+        [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
+        public List<Attachment> Attachments { get; set; } = new();
+    }
+
+    // Convention mode derives the JSON:API "type" from the camelCase class name (see
+    // ConventionResourceTypeResolver), so these subtype names ("Videos"/"Images") are chosen to
+    // match the [JsonDerivedType] discriminator strings ("videos"/"images") exactly, so the
+    // round trip is consistent between the two.
+    [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+    [JsonDerivedType(typeof(Videos), "videos")]
+    [JsonDerivedType(typeof(Images), "images")]
+    private abstract class ConventionAttachment
+    {
+        public string Id { get; set; } = "";
+    }
+
+    private sealed class Videos : ConventionAttachment
+    {
+        public int DurationSeconds { get; set; }
+    }
+
+    private sealed class Images : ConventionAttachment
+    {
+    }
+
+    private sealed class ConventionGalleryArticle
+    {
+        public string Id { get; set; } = "";
+
+        public List<ConventionAttachment> Attachments { get; set; } = new();
     }
 
     [JsonApiResource("people")]
@@ -377,6 +471,79 @@ public class JsonApiSerializerTests
         var node = JsonNode.Parse(json)!;
         Assert.Equal("videos", node["data"]!["type"]!.GetValue<string>());
         Assert.Equal("videos", roundTripped.Type);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_a_single_valued_polymorphic_attribute()
+    {
+        var holder = new ShapeHolder { Id = "1", FeaturedShape = new Circle { Radius = 5 } };
+
+        var json = _serializer.Serialize(holder);
+        var roundTripped = _serializer.Deserialize<ShapeHolder>(json);
+
+        var circle = Assert.IsType<Circle>(roundTripped.FeaturedShape);
+        Assert.Equal(5, circle.Radius);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_a_single_valued_polymorphic_attribute_with_conventions()
+    {
+        var conventionSerializer = JsonApiSerializer.WithConventions();
+        var holder = new ConventionShapeHolder { Id = "1", FeaturedShape = new Square { Side = 3 } };
+
+        var json = conventionSerializer.Serialize(holder);
+        var roundTripped = conventionSerializer.Deserialize<ConventionShapeHolder>(json);
+
+        var square = Assert.IsType<Square>(roundTripped.FeaturedShape);
+        Assert.Equal(3, square.Side);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_a_polymorphic_to_many_relationship()
+    {
+        // Relationships round-trip as identifier-only stubs unless a matching entry is present in
+        // "included" (same as any other relationship, see compound-documents.md) — so only the
+        // resolved CLR subtype and id are checked here, not Video's own DurationSeconds attribute.
+        var article = new GalleryArticle
+        {
+            Id = "1",
+            Attachments = new List<Attachment>
+            {
+                new Video { Id = "1", DurationSeconds = 42 },
+                new Image { Id = "2" },
+            },
+        };
+
+        var json = _serializer.Serialize(article);
+        var roundTripped = _serializer.Deserialize<GalleryArticle>(json);
+
+        var video = Assert.IsType<Video>(roundTripped.Attachments[0]);
+        Assert.Equal("1", video.Id);
+        Assert.IsType<Image>(roundTripped.Attachments[1]);
+        Assert.Equal("2", roundTripped.Attachments[1].Id);
+    }
+
+    [Fact]
+    public void Serialize_and_Deserialize_round_trip_a_polymorphic_to_many_relationship_with_conventions()
+    {
+        var conventionSerializer = JsonApiSerializer.WithConventions();
+        var article = new ConventionGalleryArticle
+        {
+            Id = "1",
+            Attachments = new List<ConventionAttachment>
+            {
+                new Videos { Id = "1", DurationSeconds = 42 },
+                new Images { Id = "2" },
+            },
+        };
+
+        var json = conventionSerializer.Serialize(article);
+        var roundTripped = conventionSerializer.Deserialize<ConventionGalleryArticle>(json);
+
+        var video = Assert.IsType<Videos>(roundTripped.Attachments[0]);
+        Assert.Equal("1", video.Id);
+        Assert.IsType<Images>(roundTripped.Attachments[1]);
+        Assert.Equal("2", roundTripped.Attachments[1].Id);
     }
 
     [Fact]

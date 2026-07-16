@@ -48,6 +48,7 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             {
                 Property = p,
                 JsonName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? PropertyNaming.ToCamelCase(p.Name),
+                IsPolymorphic = PolymorphismSupport.IsPolymorphic(p.PropertyType),
             })
             .ToList();
 
@@ -56,14 +57,16 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             .Select(p =>
             {
                 var relationshipAttribute = p.GetCustomAttribute<JsonApiRelationshipAttribute>()!;
+                var relatedClrType = relationshipAttribute.Kind == RelationshipKind.ToMany
+                    ? GetElementType(p.PropertyType, clrType, p.Name)
+                    : p.PropertyType;
                 return new RelationshipMetadata
                 {
                     Property = p,
                     Name = relationshipAttribute.Name,
                     Kind = relationshipAttribute.Kind,
-                    RelatedClrType = relationshipAttribute.Kind == RelationshipKind.ToMany
-                        ? GetElementType(p.PropertyType, clrType, p.Name)
-                        : p.PropertyType,
+                    RelatedClrType = relatedClrType,
+                    PolymorphicDerivedTypes = PolymorphismSupport.ResolveDerivedTypes(relatedClrType),
                 };
             })
             .ToList();
@@ -134,6 +137,7 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
                 RelatedClrType = relationship.RelatedClrType,
                 MetaProperty = metaProperty,
                 LinksProperty = linksProperty,
+                PolymorphicDerivedTypes = relationship.PolymorphicDerivedTypes,
             });
         }
 

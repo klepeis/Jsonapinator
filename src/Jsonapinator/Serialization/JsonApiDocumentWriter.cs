@@ -84,7 +84,16 @@ public sealed class JsonApiDocumentWriter : IJsonApiWriter
             var attributes = new JsonObject();
             foreach (var (key, value) in resource.Attributes)
             {
-                attributes[key] = value is null ? null : JsonSerializer.SerializeToNode(value, value.GetType());
+                // A value may already be a JsonNode here — e.g. a polymorphic attribute that
+                // ResourceGraphBuilder pre-serialized via its declared (not runtime) type so the
+                // System.Text.Json type discriminator gets embedded. Pass it through as-is rather
+                // than re-serializing via value.GetType(), which would silently drop it.
+                attributes[key] = value switch
+                {
+                    null => null,
+                    JsonNode alreadyNode => alreadyNode,
+                    _ => JsonSerializer.SerializeToNode(value, value.GetType()),
+                };
             }
 
             json["attributes"] = attributes;

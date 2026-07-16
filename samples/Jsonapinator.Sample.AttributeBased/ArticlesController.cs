@@ -36,6 +36,11 @@ public class ArticlesController : ControllerBase
                 new Attachment { Id = "1", Url = "/files/bikeshed.mp4", AttachmentType = "videos" },
                 new Attachment { Id = "2", Url = "/files/bikeshed.png", AttachmentType = "images" },
             ],
+            FeaturedMedia =
+            [
+                new VideoAsset { Id = "1", DurationSeconds = 128 },
+                new ImageAsset { Id = "2", Resolution = "1920x1080" },
+            ],
         },
     ];
 

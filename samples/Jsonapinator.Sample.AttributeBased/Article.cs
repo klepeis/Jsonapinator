@@ -58,6 +58,15 @@ public class Article
 
     [JsonApiRelationship("attachments", RelationshipKind.ToMany)]
     public List<Attachment> Attachments { get; set; } = new();
+
+    // A polymorphic to-many relationship: MediaAsset is an abstract base holding instances of two
+    // different CLR subtypes (VideoAsset, ImageAsset) side by side in the same List<MediaAsset>.
+    // This is a different feature from Attachment/[JsonApiType] above -- that lets ONE CLR type
+    // emit varying "type" names; this lets a relationship hold MULTIPLE CLR types, each resolved
+    // via System.Text.Json's own [JsonPolymorphic]/[JsonDerivedType] discriminator. See
+    // _docs/polymorphism.md.
+    [JsonApiRelationship("featuredMedia", RelationshipKind.ToMany)]
+    public List<MediaAsset> FeaturedMedia { get; set; } = new();
 }
 
 // [JsonApiType] overrides the resource's "type" per instance instead of using a fixed
@@ -76,6 +85,34 @@ public class Attachment
 
     [JsonApiType]
     public string? AttachmentType { get; set; }
+}
+
+// [JsonPolymorphic]/[JsonDerivedType] are plain System.Text.Json attributes (no Jsonapinator
+// vocabulary) -- Jsonapinator's resolvers detect them automatically on a relationship's declared
+// element type, so a List<MediaAsset> can be deserialized back into the correct concrete
+// VideoAsset/ImageAsset subtype based solely on the incoming resource identifier's "type" string,
+// even without a matching "included" entry. See _docs/polymorphism.md.
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(VideoAsset), "videos")]
+[JsonDerivedType(typeof(ImageAsset), "images")]
+public abstract class MediaAsset
+{
+    [JsonApiId]
+    public string Id { get; set; } = "";
+}
+
+[JsonApiResource("videos")]
+public class VideoAsset : MediaAsset
+{
+    [JsonApiAttribute]
+    public int DurationSeconds { get; set; }
+}
+
+[JsonApiResource("images")]
+public class ImageAsset : MediaAsset
+{
+    [JsonApiAttribute]
+    public string Resolution { get; set; } = "";
 }
 
 public class ArticleSeo

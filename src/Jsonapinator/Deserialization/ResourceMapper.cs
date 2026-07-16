@@ -175,7 +175,7 @@ public sealed class ResourceMapper
 
             foreach (var identifier in manyData)
             {
-                list.Add(BuildRelatedInstance(identifier, elementType, lookup, visiting, depth));
+                list.Add(BuildRelatedInstance(identifier, relationshipMetadata, lookup, visiting, depth));
             }
 
             var propertyType = relationshipMetadata.Property.PropertyType;
@@ -197,16 +197,17 @@ public sealed class ResourceMapper
 
         return relationshipObject.SingleData is null
             ? null
-            : BuildRelatedInstance(relationshipObject.SingleData, relationshipMetadata.RelatedClrType, lookup, visiting, depth);
+            : BuildRelatedInstance(relationshipObject.SingleData, relationshipMetadata, lookup, visiting, depth);
     }
 
     private object BuildRelatedInstance(
         ResourceIdentifierObject identifier,
-        Type clrType,
+        RelationshipMetadata relationshipMetadata,
         IReadOnlyDictionary<(string Type, string Id), ResourceObject> lookup,
         HashSet<(string Type, string Id)> visiting,
         int depth)
     {
+        var clrType = ResolveConcreteType(relationshipMetadata, identifier.Type);
         var instance = CreateInstance(clrType);
         var metadata = _resolver.Resolve(clrType);
         metadata.IdProperty.SetValue(instance, ParseId(identifier.Id, metadata.IdProperty.PropertyType));
@@ -232,6 +233,30 @@ public sealed class ResourceMapper
         }
 
         return instance;
+    }
+
+    /// <summary>
+    /// Resolves the concrete CLR type to instantiate for a related resource. If
+    /// <see cref="RelationshipMetadata.PolymorphicDerivedTypes"/> is set (the relationship's
+    /// declared <see cref="RelationshipMetadata.RelatedClrType"/> carries
+    /// <see cref="System.Text.Json.Serialization.JsonPolymorphicAttribute"/>), the incoming JSON:API
+    /// <paramref name="typeDiscriminator"/> (a resource identifier's own <c>"type"</c> string) is
+    /// looked up against the declared <c>[JsonDerivedType]</c> registrations; otherwise the
+    /// relationship's single static <see cref="RelationshipMetadata.RelatedClrType"/> is used
+    /// unchanged, exactly as before polymorphic relationships were supported.
+    /// </summary>
+    private static Type ResolveConcreteType(RelationshipMetadata relationshipMetadata, string typeDiscriminator)
+    {
+        if (relationshipMetadata.PolymorphicDerivedTypes is null)
+        {
+            return relationshipMetadata.RelatedClrType;
+        }
+
+        return relationshipMetadata.PolymorphicDerivedTypes.TryGetValue(typeDiscriminator, out var derivedType)
+            ? derivedType
+            : throw new JsonApiMappingException(
+                $"No [JsonDerivedType] on '{relationshipMetadata.RelatedClrType.Name}' matches JSON:API type " +
+                $"'{typeDiscriminator}' for relationship '{relationshipMetadata.Name}'.");
     }
 
     private static object CreateInstance(Type clrType)

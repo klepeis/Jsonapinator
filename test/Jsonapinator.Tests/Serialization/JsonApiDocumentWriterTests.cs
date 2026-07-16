@@ -49,6 +49,27 @@ public class JsonApiDocumentWriterTests
     }
 
     [Fact]
+    public void Writes_an_attribute_value_that_is_already_a_JsonNode_as_is()
+    {
+        // ResourceGraphBuilder pre-serializes polymorphic attribute values into a JsonNode (via
+        // the property's declared type, so a System.Text.Json type discriminator gets embedded)
+        // before the writer ever sees them — the writer must pass such values through rather than
+        // re-serializing via value.GetType(), which would silently drop the discriminator.
+        var preBuiltNode = new JsonObject { ["$type"] = "circle", ["Radius"] = 5 };
+        var resource = new ResourceObject
+        {
+            Type = "shape-holders",
+            Id = "1",
+            Attributes = new Dictionary<string, object?> { ["featuredShape"] = preBuiltNode },
+        };
+
+        var json = Write(JsonApiDocument.ForSingleResource(resource));
+
+        Assert.Equal("circle", json["data"]!["attributes"]!["featuredShape"]!["$type"]!.GetValue<string>());
+        Assert.Equal(5, json["data"]!["attributes"]!["featuredShape"]!["Radius"]!.GetValue<int>());
+    }
+
+    [Fact]
     public void Writes_a_non_null_to_one_relationship_as_a_resource_identifier()
     {
         var resource = new ResourceObject

@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using System.Text.Json;
 using Jsonapinator.Attributes;
 using Jsonapinator.Document;
 using Jsonapinator.Metadata;
@@ -71,7 +72,7 @@ public sealed class ResourceGraphBuilder
         {
             resourceObject.Attributes = metadata.Attributes.ToDictionary(
                 a => a.JsonName,
-                a => a.Property.GetValue(resource));
+                a => BuildAttributeValue(resource, a));
         }
 
         if (metadata.Relationships.Count > 0)
@@ -92,6 +93,24 @@ public sealed class ResourceGraphBuilder
         }
 
         return resourceObject;
+    }
+
+    /// <summary>
+    /// For a polymorphic attribute (its declared type carries
+    /// <see cref="System.Text.Json.Serialization.JsonPolymorphicAttribute"/>), pre-serializes via
+    /// the property's DECLARED type rather than leaving the raw runtime value for
+    /// <see cref="JsonApiDocumentWriter"/> to serialize later — System.Text.Json only embeds a
+    /// type discriminator when serialization is driven by the polymorphic base type; serializing
+    /// via the concrete runtime type (as the writer otherwise would, using <c>value.GetType()</c>)
+    /// bypasses the base type's polymorphic contract and silently drops the discriminator.
+    /// </summary>
+    private static object? BuildAttributeValue(object resource, AttributeMetadata attribute)
+    {
+        var rawValue = attribute.Property.GetValue(resource);
+
+        return attribute.IsPolymorphic && rawValue is not null
+            ? JsonSerializer.SerializeToNode(rawValue, attribute.Property.PropertyType)
+            : rawValue;
     }
 
     private RelationshipObject BuildRelationship(object resource, RelationshipMetadata relationshipMetadata)

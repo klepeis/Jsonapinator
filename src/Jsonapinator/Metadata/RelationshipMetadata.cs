@@ -31,4 +31,11 @@ public sealed class RelationshipMetadata
     /// JSON:API relationship-level "links", if one was declared. Null if none.
     /// </summary>
     public PropertyInfo? LinksProperty { get; init; }
+
+    /// <summary>
+    /// Maps each JSON:API type-name discriminator to its CLR subtype, if <see cref="RelatedClrType"/>
+    /// is decorated with <see cref="System.Text.Json.Serialization.JsonPolymorphicAttribute"/>. Null
+    /// otherwise — see <see cref="PolymorphismSupport"/>.
+    /// </summary>
+    public IReadOnlyDictionary<string, Type>? PolymorphicDerivedTypes { get; init; }
 }
