@@ -24,6 +24,14 @@ public sealed class JsonApiSerializer
     {
     }
 
+    /// <summary>
+    /// Creates a <see cref="JsonApiSerializer"/> that maps POCOs by convention — no
+    /// <c>Jsonapinator.Attributes</c> required. See <see cref="ConventionResourceTypeResolver"/>
+    /// for the classification rule.
+    /// </summary>
+    public static JsonApiSerializer WithConventions() =>
+        new(new ConventionResourceTypeResolver(), new JsonApiDocumentWriter(), new JsonApiDocumentReader());
+
     public JsonApiSerializer(IResourceTypeResolver resolver, IJsonApiWriter writer, IJsonApiReader reader)
     {
         _graphBuilder = new ResourceGraphBuilder(resolver);

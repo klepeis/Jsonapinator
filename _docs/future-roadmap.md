@@ -43,6 +43,16 @@ has a natural seam in the current architecture:
   a separate `Jsonapinator.Operations` package that depends on core `Jsonapinator` rather than
   growing the core library's surface area.
 
+## Known extension points
+
+- **Composite/fallback resolver**: `JsonApiSerializer` now ships two `IResourceTypeResolver`
+  implementations — attribute-based (`ResourceTypeResolver`, the default) and convention-based
+  (`ConventionResourceTypeResolver`, via `JsonApiSerializer.WithConventions()`). Since both share
+  the same `Resolve(Type) : ResourceMetadata` contract, a composite resolver that tries one and
+  falls back to the other per-type (e.g. "use attributes if present, otherwise fall back to
+  convention") would be a cheap addition later if a mixed-mode use case comes up — not built now
+  since nothing has asked for it yet.
+
 ## Known V1 limitations (not roadmap items, just documented gaps)
 
 - Relationships deserialize to identifier-only stub objects unless a matching resource is found

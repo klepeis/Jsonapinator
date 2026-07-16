@@ -46,7 +46,7 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             .Select(p => new AttributeMetadata
             {
                 Property = p,
-                JsonName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? ToCamelCase(p.Name),
+                JsonName = p.GetCustomAttribute<JsonPropertyNameAttribute>()?.Name ?? PropertyNaming.ToCamelCase(p.Name),
             })
             .ToList();
 
@@ -97,6 +97,4 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
             $"type '{propertyType.Name}' does not implement IEnumerable<T>.");
     }
 
-    private static string ToCamelCase(string name) =>
-        name.Length == 0 ? name : char.ToLowerInvariant(name[0]) + name[1..];
 }

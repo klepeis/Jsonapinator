@@ -103,6 +103,52 @@ public class Article
 }
 ```
 
+### Convention-based mapping (no attributes)
+
+If you'd rather not decorate every POCO, use `JsonApiSerializer.WithConventions()` instead of
+`new JsonApiSerializer()`. It maps plain POCOs by convention, no `Jsonapinator.Attributes`
+required:
+
+```csharp
+public class Article
+{
+    public string Id { get; set; } = "";
+    public string Title { get; set; } = "";
+    public Person? Author { get; set; }
+    public List<Comment> Comments { get; set; } = new();
+}
+
+public class Person
+{
+    public string Id { get; set; } = "";
+    public string FirstName { get; set; } = "";
+}
+
+var serializer = JsonApiSerializer.WithConventions();
+string json = serializer.Serialize(article);
+```
+
+The classification rule, applied to every public property with both a getter and a setter
+(indexers and get-only/set-only properties are silently skipped, never mapped):
+
+1. A property literally named `Id` (of type `string`, `Guid`, `int`, or `long`) becomes the
+   resource id. Exactly one is required, or `JsonApiSerializer` throws `JsonApiMappingException`.
+2. The resource type name (the `"type"` member) is the camelCase class name, **not pluralized**
+   — `Article` → `"article"`, `OrderLine` → `"orderLine"`. English pluralization is unreliable
+   (`Person` → `"People"`, not `"Persons"`), so this mode deliberately doesn't attempt it; use
+   attribute-based mapping with `[JsonApiResource("people")]` if you need a specific type name.
+3. A property whose type (or element type, for `List<T>`/`T[]`) is itself a class with its own
+   usable `Id` property becomes a relationship — to-one for a single reference, to-many for a
+   collection.
+4. Everything else (primitives, `string`, `Guid`, `DateTime`, `decimal`, enums, nested objects/
+   collections without an `Id` property) becomes a flat attribute, serialized as-is — including
+   nested objects and arrays, matching "assume all elements of the POCO are present."
+
+`[JsonPropertyName]` overrides are still respected for attribute names in convention mode, same
+as attribute-based mapping. Convention mode and attribute mode are mutually exclusive per
+`JsonApiSerializer` instance — a type is resolved entirely by whichever resolver that instance
+was built with, no mixing.
+
 Serialize and deserialize via `JsonApiSerializer`:
 
 ```csharp
