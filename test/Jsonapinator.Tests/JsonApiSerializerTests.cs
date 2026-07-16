@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Text.Json.Nodes;
 using Jsonapinator;
 using Jsonapinator.Attributes;
@@ -44,6 +45,29 @@ public class JsonApiSerializerTests
     }
 
     private readonly JsonApiSerializer _serializer = new();
+
+    [Fact]
+    public void Serialize_object_overload_produces_a_valid_single_resource_document()
+    {
+        object article = new Article { Id = "1", Title = "Bikeshedding" };
+
+        var json = _serializer.Serialize(article);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal("articles", node["data"]!["type"]!.GetValue<string>());
+        Assert.Equal("Bikeshedding", node["data"]!["attributes"]!["title"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void SerializeCollection_ienumerable_overload_produces_a_data_array()
+    {
+        IEnumerable articles = new List<Article> { new() { Id = "1" }, new() { Id = "2" } };
+
+        var json = _serializer.SerializeCollection(articles);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal(2, node["data"]!.AsArray().Count);
+    }
 
     [Fact]
     public void Serialize_produces_a_valid_single_resource_document()
@@ -171,6 +195,28 @@ public class JsonApiSerializerTests
         Assert.Equal("1", article.Id);
         Assert.Equal("Hello", article.Title);
         Assert.Equal("9", article.Author!.Id);
+    }
+
+    [Fact]
+    public void Deserialize_with_runtime_Type_maps_a_single_resource_document()
+    {
+        var article = (Article)_serializer.Deserialize(typeof(Article), """
+            {"data":{"type":"articles","id":"1","attributes":{"title":"Hello"}}}
+            """);
+
+        Assert.Equal("1", article.Id);
+        Assert.Equal("Hello", article.Title);
+    }
+
+    [Fact]
+    public void DeserializeCollection_with_runtime_Type_maps_a_resource_collection_document()
+    {
+        var list = _serializer.DeserializeCollection(typeof(Article), """
+            {"data":[{"type":"articles","id":"1"},{"type":"articles","id":"2"}]}
+            """);
+
+        Assert.Equal(2, list.Count);
+        Assert.Equal("2", ((Article)list[1]!).Id);
     }
 
     [Fact]

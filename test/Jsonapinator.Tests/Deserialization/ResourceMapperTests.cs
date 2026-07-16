@@ -67,6 +67,29 @@ public class ResourceMapperTests
     private JsonApiDocument ReadDocument(string json) => _reader.Read(json);
 
     [Fact]
+    public void Map_with_runtime_Type_sets_the_id_property()
+    {
+        var resource = ReadResource("""{"data":{"type":"articles","id":"1"}}""");
+
+        var article = (Article)_mapper.Map(typeof(Article), resource);
+
+        Assert.Equal("1", article.Id);
+    }
+
+    [Fact]
+    public void Map_with_runtime_Type_hydrates_relationships_from_included()
+    {
+        var document = ReadDocument("""
+            {"data":{"type":"articles","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+             "included":[{"type":"people","id":"9","attributes":{"firstName":"Dan"}}]}
+            """);
+
+        var article = (Article)_mapper.Map(typeof(Article), document.Data!.Single!, document.Included);
+
+        Assert.Equal("Dan", article.Author!.FirstName);
+    }
+
+    [Fact]
     public void Map_sets_the_id_property()
     {
         var resource = ReadResource("""{"data":{"type":"articles","id":"1"}}""");

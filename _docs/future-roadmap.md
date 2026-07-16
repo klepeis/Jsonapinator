@@ -37,11 +37,34 @@ has a natural seam in the current architecture:
 
 - **JSON:API extensions/profiles negotiation** (`Content-Type` media type parameters like
   `ext="..."`) — content-negotiation concerns that likely belong in an ASP.NET Core-specific
-  integration package rather than the framework-agnostic core.
+  integration package rather than the framework-agnostic core. ~~This now has a concrete home~~:
+  `Jsonapinator.AspNetCore` exists (see below); strict enforcement of the spec's 415/406
+  parameter-rejection rule is still not built there.
 - **Atomic operations** (`POST /operations` with an array of operation objects) — a
   fundamentally different request/response shape from the rest of the spec. Strong candidate for
   a separate `Jsonapinator.Operations` package that depends on core `Jsonapinator` rather than
   growing the core library's surface area.
+
+## `Jsonapinator.AspNetCore` — deferred concerns
+
+`Jsonapinator.AspNetCore` (custom MVC input/output formatters for `application/vnd.api+json`,
+see [`aspnetcore-integration.md`](aspnetcore-integration.md)) intentionally stays scoped to
+format conversion. Deferred from that pass, not yet built:
+
+- **Validation-failure and unhandled-exception → JSON:API error document mapping.** ASP.NET
+  Core's built-in `ModelState` validation failures and unhandled exceptions currently produce
+  ASP.NET Core's default `ProblemDetails` responses, not `ErrorObject`/JSON:API-shaped error
+  documents. Would need `ProblemDetails`-factory customization and/or exception-handling
+  middleware that calls `JsonApiSerializer.SerializeErrors`.
+- **Strict content-negotiation parameter rejection.** The JSON:API spec requires rejecting
+  `Content-Type`/`Accept` values that include media-type parameters (415/406) — `TextInputFormatter`/
+  `TextOutputFormatter` don't give this for free; it would need `CanWriteResult` overrides and/or
+  manual `Accept`-header parameter inspection.
+- **Shape-mismatched body → 500, not 400.** `JsonApiSerializer.Deserialize`/`Deserialize<T>`
+  dereference `document.Data!.Single!` without checking — a JSON:API array posted to an action
+  expecting a single resource throws a raw null-reference (surfacing as an unhandled 500 through
+  `JsonApiInputFormatter`) instead of `JsonApiMappingException`/400. This is a pre-existing gap in
+  core `Jsonapinator`'s deserialize path, not specific to the ASP.NET Core integration.
 
 ## Known extension points
 

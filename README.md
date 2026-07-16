@@ -70,6 +70,44 @@ string json = serializer.Serialize(article, options);
 See [`_docs/compound-documents.md`](_docs/compound-documents.md) for populating and consuming a
 top-level `"included"` array via `JsonApiDocumentOptions.Include`.
 
+## ASP.NET Core integration
+
+`Jsonapinator.AspNetCore` (a separate sibling project — core `Jsonapinator` stays
+dependency-free) makes `application/vnd.api+json` work automatically for ASP.NET Core Web API
+controllers, via custom MVC input/output formatters registered on startup:
+
+```csharp
+builder.Services.AddControllers().AddJsonApi();
+```
+
+Once registered, controller actions return/accept plain POCOs like any other action — no
+per-action code or `[Produces]`/`[Consumes]` attributes needed:
+
+```csharp
+[ApiController]
+[Route("articles")]
+public class ArticlesController : ControllerBase
+{
+    [HttpGet("{id}")]
+    public Article Get(string id) => /* ... */;
+
+    [HttpPost]
+    public Article Post([FromBody] Article article) => /* ... */;
+}
+```
+
+A request with `Accept: application/vnd.api+json` gets back a JSON:API-shaped response; a
+request with `Content-Type: application/vnd.api+json` has its body deserialized automatically. A
+malformed body produces a `400 Bad Request` rather than an unhandled exception.
+
+`AddJsonApi()` defaults to **convention-based** mapping (the opposite default from
+`new JsonApiSerializer()` above) — call `AddJsonApi(options => options.UseAttributes())` for
+attribute-based mapping instead.
+
+**See [`_docs/aspnetcore-integration.md`](_docs/aspnetcore-integration.md) for the full setup**
+(how it works, malformed-body handling, known limitations), or run
+`samples/Jsonapinator.Sample.WebApi` for a working example.
+
 ## Known V1 limitations
 
 - Deserialized relationships are identifier-only stubs unless the source JSON has a matching

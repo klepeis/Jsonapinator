@@ -35,6 +35,20 @@ public sealed class ResourceMapper
         return target;
     }
 
+    /// <summary>
+    /// Non-generic bridge for callers that only have a runtime <see cref="Type"/>, not a
+    /// compile-time <c>T</c> (e.g. an ASP.NET Core input formatter). Prefer <see cref="Map{T}"/>
+    /// when <c>T</c> is known at the call site.
+    /// </summary>
+    public object Map(Type targetType, ResourceObject resource, IReadOnlyList<ResourceObject>? included = null)
+    {
+        var target = CreateInstance(targetType);
+        var lookup = BuildLookup(resource, included);
+        var visiting = new HashSet<(string Type, string Id)>();
+        MapOnto(resource, target, lookup, visiting);
+        return target;
+    }
+
     public void MapOnto(ResourceObject resource, object target) =>
         MapOnto(resource, target, BuildLookup(resource, null), new HashSet<(string Type, string Id)>());
 
