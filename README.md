@@ -6,11 +6,6 @@ produce and consume spec-compliant JSON:API documents.
 
 Built test-first (TDD) following SOLID design principles.
 
-**Docs:** [Attribute-based mapping](_docs/attribute-based-mapping.md) ·
-[Convention-based mapping](_docs/convention-based-mapping.md) ·
-[Compound documents (`include`)](_docs/compound-documents.md) ·
-[Future roadmap](_docs/future-roadmap.md)
-
 ## Install
 
 Reference the `src/Jsonapinator/Jsonapinator.csproj` project (a NuGet package is not yet
