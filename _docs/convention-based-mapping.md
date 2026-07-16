@@ -25,6 +25,10 @@ string json = serializer.Serialize(article);
 Article roundTripped = serializer.Deserialize<Article>(json);
 ```
 
+See [`../samples/Jsonapinator.Sample.ConventionBased`](../samples/Jsonapinator.Sample.ConventionBased)
+for a runnable ASP.NET Core example covering relationships, nested object/array attributes, and a
+`Guid`-keyed resource.
+
 ## When to use this over attribute-based mapping
 
 - Your POCOs already follow ordinary .NET conventions (a property named `Id`, navigation

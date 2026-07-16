@@ -1,8 +1,8 @@
 {
   "profiles": {
-    "Jsonapinator.Sample.WebApi": {
+    "Jsonapinator.Sample.ErrorHandling.Default": {
       "commandName": "Project",
-      "applicationUrl": "http://localhost:5289",
+      "applicationUrl": "http://localhost:5291",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }

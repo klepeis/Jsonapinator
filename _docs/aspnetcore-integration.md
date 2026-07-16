@@ -79,6 +79,17 @@ ahead of the default System.Text.Json formatters:
 Both only ever activate when `application/vnd.api+json` is the negotiated media type — they don't
 affect any endpoint that doesn't use it.
 
+**Known gap**: `JsonApiOutputFormatter` always calls
+`JsonApiSerializer.Serialize(context.Object!)` with no `JsonApiDocumentOptions`, so a controller
+action returning a POCO cannot request compound documents (`Include`) automatically — there's no
+`?include=` wiring today. The workaround is the `JsonApiSerializer` DI escape hatch: inject it,
+call `Serialize(resource, new JsonApiDocumentOptions { Include = [...] })` yourself, and return
+`Content(json, JsonApiOutputFormatter.MediaType)` — see the `with-includes` action in
+`samples/Jsonapinator.Sample.ConventionBased`. Same gap applies to PATCH-style partial updates on
+the input side: the formatter always builds a fresh instance rather than mapping onto an
+already-loaded entity; true partial updates need `ResourceMapper.MapOnto` called manually. See
+`future-roadmap.md`.
+
 ## Malformed request bodies → 400
 
 If a request body can't be mapped (malformed JSON, an id whose value doesn't parse as the
@@ -117,6 +128,10 @@ was negotiated with:
 builder.Services.AddControllers().AddJsonApi(options => options.MapErrorsAlways());
 ```
 
+See `samples/Jsonapinator.Sample.ErrorHandling.Default` and
+`samples/Jsonapinator.Sample.ErrorHandling.AlwaysMap` for the two configurations side by side,
+with `curl` commands showing the behavioral difference.
+
 **Unhandled-exception mapping requires one extra step**: `AddJsonApi()` can only register
 `JsonApiExceptionHandler` as a DI service (`IExceptionHandler`) — it cannot wire it into the
 application pipeline, since that requires `IApplicationBuilder`, only available after
@@ -131,12 +146,17 @@ which `AddJsonApi()` can configure directly.
   parameters (415/406) isn't enforced — the bare `application/vnd.api+json` media type is
   registered and matched by ASP.NET Core's normal content negotiation. See `future-roadmap.md`.
 
-## Sample
+## Samples
 
-`samples/Jsonapinator.Sample.WebApi` is a minimal runnable Web API (one controller, one resource
-type) demonstrating this end to end:
+- `samples/Jsonapinator.Sample.ConventionBased` — relationships, nested object/array attributes, a
+  `Guid`-keyed resource, and the `Include` escape hatch, all mapped by convention.
+- `samples/Jsonapinator.Sample.AttributeBased` — the same resource graph mapped via explicit
+  `Jsonapinator.Attributes`, including a `[JsonPropertyName]` override.
+- `samples/Jsonapinator.Sample.ErrorHandling.Default` and
+  `samples/Jsonapinator.Sample.ErrorHandling.AlwaysMap` — the two error-mapping configurations
+  side by side, each with `curl` walkthroughs in its `Program.cs` header comment.
 
 ```
-dotnet run --project samples/Jsonapinator.Sample.WebApi
+dotnet run --project samples/Jsonapinator.Sample.ConventionBased
 curl -H "Accept: application/vnd.api+json" http://localhost:5289/articles
 ```

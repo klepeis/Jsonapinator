@@ -109,8 +109,19 @@ required for unhandled-exception mapping.
 attribute-based mapping instead.
 
 **See [`_docs/aspnetcore-integration.md`](_docs/aspnetcore-integration.md) for the full setup**
-(how it works, malformed-body handling, known limitations), or run
-`samples/Jsonapinator.Sample.WebApi` for a working example.
+(how it works, malformed-body handling, known limitations), or run one of the samples below for a
+working example.
+
+## Samples
+
+| Project | Demonstrates |
+|---|---|
+| [`samples/Jsonapinator.Sample.ConventionBased`](samples/Jsonapinator.Sample.ConventionBased) | Convention-based mapping: to-one/to-many relationships, nested object/array attributes, a `Guid`-keyed resource, and the `Include`/compound-documents escape hatch. |
+| [`samples/Jsonapinator.Sample.AttributeBased`](samples/Jsonapinator.Sample.AttributeBased) | The same resource graph mapped via explicit `Jsonapinator.Attributes`, including a `[JsonPropertyName]` override. |
+| [`samples/Jsonapinator.Sample.ErrorHandling.Default`](samples/Jsonapinator.Sample.ErrorHandling.Default) | The negotiation-aware error-mapping default — JSON:API errors only when `Accept: application/vnd.api+json` was sent. |
+| [`samples/Jsonapinator.Sample.ErrorHandling.AlwaysMap`](samples/Jsonapinator.Sample.ErrorHandling.AlwaysMap) | `options.MapErrorsAlways()` — JSON:API errors regardless of what was negotiated. |
+
+Each sample's `Program.cs` has `curl` commands in a header comment showing what to try.
 
 ## Known V1 limitations
 

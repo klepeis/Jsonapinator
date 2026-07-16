@@ -43,3 +43,11 @@ feature at all.
 - A resource never appears twice across primary data + `included` (deduplicated by
   `{type, id}`), and a resource that's part of the primary data is never also duplicated into
   `included`.
+- **In ASP.NET Core, `Include` isn't wired through the automatic output formatter** —
+  `JsonApiOutputFormatter` always calls `Serialize`/`SerializeCollection` with no
+  `JsonApiDocumentOptions`, so a controller action returning a POCO can't request compound
+  documents automatically. The current workaround is to inject `JsonApiSerializer` (registered as
+  a DI singleton by `AddJsonApi()`) and call `Serialize(resource, options)` directly — see the
+  `with-includes` action in
+  [`../samples/Jsonapinator.Sample.ConventionBased`](../samples/Jsonapinator.Sample.ConventionBased).
+  See `future-roadmap.md`.

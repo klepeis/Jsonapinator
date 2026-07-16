@@ -31,6 +31,8 @@ Article roundTripped = serializer.Deserialize<Article>(json);
 See [`../README.md`](../README.md) for `JsonApiSerializer`'s full method list (`SerializeCollection`,
 `SerializeErrors`, `DeserializeCollection`, `BuildDocument`/`ParseDocument`,
 `JsonApiDocumentOptions`) — this document only covers how a type gets mapped in the first place.
+See [`../samples/Jsonapinator.Sample.AttributeBased`](../samples/Jsonapinator.Sample.AttributeBased)
+for a runnable ASP.NET Core example.
 
 ## When to use this over convention-based mapping
 
