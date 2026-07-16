@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{5AC27DDE-CB70-4020-8F77-A5B4E73F6B63}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jsonapinator", "src\Jsonapinator\Jsonapinator.csproj", "{BE24B01D-3197-491E-A7AD-BD6201397D88}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{8ED65DE5-3968-4C3E-9904-5A9DC6325170}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Jsonapinator.Tests", "test\Jsonapinator.Tests\Jsonapinator.Tests.csproj", "{9B852E07-7391-4967-82E1-FD2547994C22}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BE24B01D-3197-491E-A7AD-BD6201397D88}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BE24B01D-3197-491E-A7AD-BD6201397D88}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BE24B01D-3197-491E-A7AD-BD6201397D88}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BE24B01D-3197-491E-A7AD-BD6201397D88}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B852E07-7391-4967-82E1-FD2547994C22}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B852E07-7391-4967-82E1-FD2547994C22}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B852E07-7391-4967-82E1-FD2547994C22}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B852E07-7391-4967-82E1-FD2547994C22}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BE24B01D-3197-491E-A7AD-BD6201397D88} = {5AC27DDE-CB70-4020-8F77-A5B4E73F6B63}
+		{9B852E07-7391-4967-82E1-FD2547994C22} = {8ED65DE5-3968-4C3E-9904-5A9DC6325170}
+	EndGlobalSection
+EndGlobal
