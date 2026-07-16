@@ -195,6 +195,38 @@ public class JsonApiDocumentWriterTests
     }
 
     [Fact]
+    public void Writes_included_array_when_present()
+    {
+        var document = JsonApiDocument.ForSingleResource(new ResourceObject { Type = "articles", Id = "1" });
+        document.Included = new List<ResourceObject>
+        {
+            new()
+            {
+                Type = "people",
+                Id = "9",
+                Attributes = new Dictionary<string, object?> { ["firstName"] = "Dan" },
+            },
+        };
+
+        var json = Write(document);
+
+        var included = json["included"]!.AsArray();
+        Assert.Single(included);
+        Assert.Equal("people", included[0]!["type"]!.GetValue<string>());
+        Assert.Equal("Dan", included[0]!["attributes"]!["firstName"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Omits_included_member_when_null()
+    {
+        var document = JsonApiDocument.ForSingleResource(new ResourceObject { Type = "articles", Id = "1" });
+
+        var json = Write(document);
+
+        Assert.False(json.AsObject().ContainsKey("included"));
+    }
+
+    [Fact]
     public void Writes_errors_without_a_data_member()
     {
         var document = JsonApiDocument.ForErrors(new List<ErrorObject>

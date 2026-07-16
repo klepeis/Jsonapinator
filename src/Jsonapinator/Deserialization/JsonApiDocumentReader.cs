@@ -36,6 +36,11 @@ public sealed class JsonApiDocumentReader : IJsonApiReader
             document.Data = ReadData(dataNode);
         }
 
+        if (obj.TryGetPropertyValue("included", out var includedNode) && includedNode is JsonArray includedArray)
+        {
+            document.Included = includedArray.Select(n => ReadResource((JsonObject)n!)).ToList();
+        }
+
         if (obj.TryGetPropertyValue("errors", out var errorsNode) && errorsNode is JsonArray errorsArray)
         {
             document.Errors = errorsArray.Select(e => ReadError((JsonObject)e!)).ToList();

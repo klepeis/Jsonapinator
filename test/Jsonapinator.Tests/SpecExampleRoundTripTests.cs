@@ -51,19 +51,26 @@ public class SpecExampleRoundTripTests
 
         [JsonApiAttribute]
         public string Body { get; set; } = "";
+
+        [JsonApiRelationship("author", RelationshipKind.ToOne)]
+        public Person? Author { get; set; }
     }
 
-    private static Article BuildSpecExampleArticle() => new()
+    private static Article BuildSpecExampleArticle()
     {
-        Id = "1",
-        Title = "JSON:API paints my bikeshed!",
-        Author = new Person { Id = "9", FirstName = "Dan", LastName = "Gebhardt", Twitter = "dgeb" },
-        Comments = new List<Comment>
+        var author = new Person { Id = "9", FirstName = "Dan", LastName = "Gebhardt", Twitter = "dgeb" };
+        return new Article
         {
-            new() { Id = "5", Body = "First!" },
-            new() { Id = "12", Body = "I like XML better" },
-        },
-    };
+            Id = "1",
+            Title = "JSON:API paints my bikeshed!",
+            Author = author,
+            Comments = new List<Comment>
+            {
+                new() { Id = "5", Body = "First!", Author = author },
+                new() { Id = "12", Body = "I like XML better", Author = new Person { Id = "2", FirstName = "Kat" } },
+            },
+        };
+    }
 
     [Fact]
     public void Serialized_document_matches_the_spec_structure_field_for_field()
@@ -102,6 +109,31 @@ public class SpecExampleRoundTripTests
         Assert.Equal(
             JsonNode.Parse(firstPass)!.ToJsonString(),
             JsonNode.Parse(secondPass)!.ToJsonString());
+    }
+
+    [Fact]
+    public void Serialize_with_include_then_deserialize_hydrates_full_related_resource_attributes()
+    {
+        var serializer = new JsonApiSerializer();
+        var options = new JsonApiDocumentOptions { Include = new[] { "author", "comments.author" } };
+
+        var json = serializer.Serialize(BuildSpecExampleArticle(), options);
+        var roundTripped = serializer.Deserialize<Article>(json);
+
+        Assert.Equal("Dan", roundTripped.Author!.FirstName);
+        Assert.Equal("Dan", roundTripped.Comments[0].Author!.FirstName);
+        Assert.Equal("Kat", roundTripped.Comments[1].Author!.FirstName);
+    }
+
+    [Fact]
+    public void Included_array_dedups_the_shared_author_reachable_via_two_paths()
+    {
+        var serializer = new JsonApiSerializer();
+        var options = new JsonApiDocumentOptions { Include = new[] { "author", "comments.author" } };
+
+        var document = serializer.BuildDocument(BuildSpecExampleArticle(), options.Include);
+
+        Assert.Single(document.Included!, r => r.Type == "people" && r.Id == "9");
     }
 
     [Fact]

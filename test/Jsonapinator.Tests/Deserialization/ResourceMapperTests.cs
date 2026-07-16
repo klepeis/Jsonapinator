@@ -31,6 +31,9 @@ public class ResourceMapperTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public string FirstName { get; set; } = "";
     }
 
     [JsonApiResource("comments")]
@@ -38,6 +41,15 @@ public class ResourceMapperTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public string Body { get; set; } = "";
+
+        [JsonApiRelationship("author", RelationshipKind.ToOne)]
+        public Person? Author { get; set; }
+
+        [JsonApiRelationship("article", RelationshipKind.ToOne)]
+        public Article? Article { get; set; }
     }
 
     [JsonApiResource("guid-things")]
@@ -51,6 +63,8 @@ public class ResourceMapperTests
     private readonly JsonApiDocumentReader _reader = new();
 
     private ResourceObject ReadResource(string json) => _reader.Read(json).Data!.Single!;
+
+    private JsonApiDocument ReadDocument(string json) => _reader.Read(json);
 
     [Fact]
     public void Map_sets_the_id_property()
@@ -134,5 +148,74 @@ public class ResourceMapperTests
         Assert.Equal(2, article.Comments.Count);
         Assert.Equal("5", article.Comments[0].Id);
         Assert.Equal("12", article.Comments[1].Id);
+    }
+
+    [Fact]
+    public void Map_hydrates_a_relationship_from_the_included_array()
+    {
+        var document = ReadDocument("""
+            {"data":{"type":"articles","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+             "included":[{"type":"people","id":"9","attributes":{"firstName":"Dan"}}]}
+            """);
+
+        var article = _mapper.Map<Article>(document.Data!.Single!, document.Included);
+
+        Assert.Equal("9", article.Author!.Id);
+        Assert.Equal("Dan", article.Author.FirstName);
+    }
+
+    [Fact]
+    public void Map_falls_back_to_a_stub_when_included_has_no_matching_entry()
+    {
+        var document = ReadDocument("""
+            {"data":{"type":"articles","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+             "included":[{"type":"people","id":"999","attributes":{"firstName":"Someone Else"}}]}
+            """);
+
+        var article = _mapper.Map<Article>(document.Data!.Single!, document.Included);
+
+        Assert.Equal("9", article.Author!.Id);
+        Assert.Equal("", article.Author.FirstName);
+    }
+
+    [Fact]
+    public void Map_hydrates_nested_relationships_from_included()
+    {
+        var document = ReadDocument("""
+            {"data":{"type":"articles","id":"1","relationships":{"comments":{"data":[{"type":"comments","id":"5"}]}}},
+             "included":[
+                {"type":"comments","id":"5","attributes":{"body":"First!"},"relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+                {"type":"people","id":"9","attributes":{"firstName":"Dan"}}
+             ]}
+            """);
+
+        var article = _mapper.Map<Article>(document.Data!.Single!, document.Included);
+
+        Assert.Equal("First!", article.Comments[0].Body);
+        Assert.Equal("Dan", article.Comments[0].Author!.FirstName);
+    }
+
+    [Fact]
+    public void Map_does_not_infinitely_recurse_on_a_circular_reference()
+    {
+        var document = ReadDocument("""
+            {"data":{"type":"articles","id":"1","attributes":{"title":"Root"},"relationships":{"comments":{"data":[{"type":"comments","id":"5"}]}}},
+             "included":[
+                {"type":"comments","id":"5","attributes":{"body":"First!"},"relationships":{"article":{"data":{"type":"articles","id":"1"}}}}
+             ]}
+            """);
+
+        var article = _mapper.Map<Article>(document.Data!.Single!, document.Included);
+
+        // The cyclic back-reference (comment -> article -> comment -> ...) is hydrated one
+        // level deep (a "gray node" re-entrancy guard, not a permanent "seen" set — see
+        // ResourceMapper), then the repeat encounter is left as an id-only stub so recursion
+        // terminates instead of overflowing the stack.
+        Assert.Equal("Root", article.Title);
+        Assert.Equal("First!", article.Comments[0].Body);
+        Assert.Equal("1", article.Comments[0].Article!.Id);
+        Assert.Equal("Root", article.Comments[0].Article!.Title);
+        Assert.Equal("5", article.Comments[0].Article!.Comments[0].Id);
+        Assert.Equal("", article.Comments[0].Article!.Comments[0].Body);
     }
 }

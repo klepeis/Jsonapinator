@@ -121,6 +121,19 @@ public class DocumentModelTests
     }
 
     [Fact]
+    public void JsonApiDocument_Included_defaults_to_null_and_is_settable()
+    {
+        var document = JsonApiDocument.ForSingleResource(new ResourceObject { Type = "articles", Id = "1" });
+
+        Assert.Null(document.Included);
+
+        var included = new List<ResourceObject> { new() { Type = "people", Id = "9" } };
+        document.Included = included;
+
+        Assert.Same(included, document.Included);
+    }
+
+    [Fact]
     public void ErrorObject_supports_source_pointer_and_parameter()
     {
         var error = new ErrorObject

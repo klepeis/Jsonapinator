@@ -22,6 +22,13 @@ public sealed class ResourceGraphBuilder
     public JsonApiDocument BuildDocument(object resource) =>
         JsonApiDocument.ForSingleResource(BuildResource(resource));
 
+    public JsonApiDocument BuildDocument(object resource, IEnumerable<string>? includePaths)
+    {
+        var document = BuildDocument(resource);
+        ApplyIncludes(document, new[] { resource }, includePaths);
+        return document;
+    }
+
     public JsonApiDocument BuildCollectionDocument(IEnumerable resources)
     {
         var resourceObjects = new List<ResourceObject>();
@@ -31,6 +38,21 @@ public sealed class ResourceGraphBuilder
         }
 
         return JsonApiDocument.ForCollection(resourceObjects);
+    }
+
+    public JsonApiDocument BuildCollectionDocument(IEnumerable resources, IEnumerable<string>? includePaths)
+    {
+        var rootResources = new List<object>();
+        var resourceObjects = new List<ResourceObject>();
+        foreach (var resource in resources)
+        {
+            rootResources.Add(resource);
+            resourceObjects.Add(BuildResource(resource));
+        }
+
+        var document = JsonApiDocument.ForCollection(resourceObjects);
+        ApplyIncludes(document, rootResources, includePaths);
+        return document;
     }
 
     public ResourceObject BuildResource(object resource)
@@ -93,6 +115,71 @@ public sealed class ResourceGraphBuilder
             Type = metadata.ResourceType,
             Id = FormatId(metadata.IdProperty.GetValue(relatedResource)),
         };
+    }
+
+    private void ApplyIncludes(JsonApiDocument document, IEnumerable<object> rootResources, IEnumerable<string>? includePaths)
+    {
+        if (includePaths is null)
+        {
+            return;
+        }
+
+        var paths = includePaths.ToList();
+        if (paths.Count == 0)
+        {
+            return;
+        }
+
+        var tree = IncludeTreeBuilder.Build(paths);
+        var roots = rootResources.ToList();
+
+        var visited = new HashSet<(string Type, string Id)>();
+        foreach (var root in roots)
+        {
+            var metadata = _resolver.Resolve(root.GetType());
+            visited.Add((metadata.ResourceType, FormatId(metadata.IdProperty.GetValue(root))));
+        }
+
+        var included = new List<ResourceObject>();
+        foreach (var root in roots)
+        {
+            WalkIncludes(root, tree, visited, included);
+        }
+
+        if (included.Count > 0)
+        {
+            document.Included = included;
+        }
+    }
+
+    private void WalkIncludes(object resource, IncludeNode node, HashSet<(string Type, string Id)> visited, List<ResourceObject> included)
+    {
+        var metadata = _resolver.Resolve(resource.GetType());
+
+        foreach (var (segmentName, childNode) in node.Children)
+        {
+            var relationshipMetadata = metadata.Relationships.FirstOrDefault(r => r.Name == segmentName)
+                ?? throw new Exceptions.JsonApiMappingException(
+                    $"Include path segment '{segmentName}' is not a relationship on resource type '{metadata.ResourceType}'.");
+
+            var rawValue = relationshipMetadata.Property.GetValue(resource);
+            var relatedObjects = relationshipMetadata.Kind == RelationshipKind.ToMany
+                ? (rawValue as IEnumerable)?.Cast<object>() ?? Enumerable.Empty<object>()
+                : rawValue is null ? Enumerable.Empty<object>() : new[] { rawValue };
+
+            foreach (var related in relatedObjects)
+            {
+                var relatedMetadata = _resolver.Resolve(related.GetType());
+                var key = (relatedMetadata.ResourceType, FormatId(relatedMetadata.IdProperty.GetValue(related)));
+
+                if (visited.Add(key))
+                {
+                    included.Add(BuildResource(related));
+                }
+
+                WalkIncludes(related, childNode, visited, included);
+            }
+        }
     }
 
     private static string FormatId(object? idValue) => idValue switch

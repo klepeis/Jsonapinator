@@ -84,6 +84,26 @@ public class JsonApiDocumentReaderTests
     }
 
     [Fact]
+    public void Parses_the_included_array()
+    {
+        var document = _reader.Read("""
+            {"data":{"type":"articles","id":"1"},"included":[{"type":"people","id":"9","attributes":{"firstName":"Dan"}}]}
+            """);
+
+        var included = Assert.Single(document.Included!);
+        Assert.Equal("people", included.Type);
+        Assert.Equal("9", included.Id);
+    }
+
+    [Fact]
+    public void Leaves_included_null_when_absent()
+    {
+        var document = _reader.Read("""{"data":{"type":"articles","id":"1"}}""");
+
+        Assert.Null(document.Included);
+    }
+
+    [Fact]
     public void Parses_errors()
     {
         var document = _reader.Read("""

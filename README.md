@@ -6,7 +6,7 @@ produce and consume spec-compliant JSON:API documents.
 
 Built test-first (TDD) following SOLID design principles. See
 [`_docs/future-roadmap.md`](_docs/future-roadmap.md) for what's deferred to later phases
-(sparse fieldsets, `include`, sorting, pagination, filtering, extensions, atomic operations).
+(sparse fieldsets, sorting, pagination, filtering, extensions, atomic operations).
 
 ## Install
 
@@ -74,12 +74,35 @@ var options = new JsonApiDocumentOptions
 string json = serializer.Serialize(article, options);
 ```
 
+### Compound documents (`include`)
+
+Pass dot-notation relationship paths via `JsonApiDocumentOptions.Include` to populate the
+top-level `"included"` array. Related objects are read directly off the POCO's relationship
+properties, which are assumed to already be loaded (e.g. via EF Core `.Include()` before calling
+`Serialize`) — Jsonapinator does not lazy-load them itself:
+
+```csharp
+var options = new JsonApiDocumentOptions { Include = new[] { "author", "comments.author" } };
+string json = serializer.Serialize(article, options);
+```
+
+On deserialize, when the source JSON has an `"included"` array, matching relationships are fully
+hydrated (attributes and their own nested relationships populated) instead of being left as
+id-only stubs — this happens automatically, no extra API call needed:
+
+```csharp
+Article article = serializer.Deserialize<Article>(json);
+article.Author!.FirstName // populated if "author" was present in "included"
+```
+
 ### Known V1 limitations
 
-- Deserialized relationships are identifier-only stubs (id + type) — compound documents
-  (`include`) aren't supported yet.
+- Deserialized relationships are identifier-only stubs unless the source JSON has a matching
+  entry in its top-level `"included"` array, in which case they're fully hydrated.
 - To-many relationship properties must be `List<T>` or `T[]`.
 - Resource ids are limited to `string`, `Guid`, `int`, and `long`.
+- No query-string `?include=...` parsing helper is provided — consumers turn that into an
+  `IEnumerable<string>` of paths themselves.
 
 ## Development
 

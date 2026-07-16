@@ -26,14 +26,23 @@ public sealed class ResourceMapper
         _resolver = resolver;
     }
 
-    public T Map<T>(ResourceObject resource) where T : new()
+    public T Map<T>(ResourceObject resource, IReadOnlyList<ResourceObject>? included = null) where T : new()
     {
         var target = new T();
-        MapOnto(resource, target!);
+        var lookup = BuildLookup(resource, included);
+        var visiting = new HashSet<(string Type, string Id)>();
+        MapOnto(resource, target!, lookup, visiting);
         return target;
     }
 
-    public void MapOnto(ResourceObject resource, object target)
+    public void MapOnto(ResourceObject resource, object target) =>
+        MapOnto(resource, target, BuildLookup(resource, null), new HashSet<(string Type, string Id)>());
+
+    private void MapOnto(
+        ResourceObject resource,
+        object target,
+        IReadOnlyDictionary<(string Type, string Id), ResourceObject> lookup,
+        HashSet<(string Type, string Id)> visiting)
     {
         var metadata = _resolver.Resolve(target.GetType());
 
@@ -59,16 +68,45 @@ public sealed class ResourceMapper
             {
                 if (resource.Relationships.TryGetValue(relationship.Name, out var relationshipObject))
                 {
-                    relationship.Property.SetValue(target, BuildRelationshipValue(relationshipObject, relationship));
+                    relationship.Property.SetValue(target, BuildRelationshipValue(relationshipObject, relationship, lookup, visiting));
                 }
             }
         }
     }
 
+    private static Dictionary<(string Type, string Id), ResourceObject> BuildLookup(
+        ResourceObject primary, IReadOnlyList<ResourceObject>? included)
+    {
+        var lookup = new Dictionary<(string Type, string Id), ResourceObject>();
+
+        void Add(ResourceObject resource)
+        {
+            if (resource.Id is not null)
+            {
+                lookup[(resource.Type, resource.Id)] = resource;
+            }
+        }
+
+        Add(primary);
+        if (included is not null)
+        {
+            foreach (var resource in included)
+            {
+                Add(resource);
+            }
+        }
+
+        return lookup;
+    }
+
     private static object? ConvertAttributeValue(object? rawValue, Type targetType) =>
         rawValue is JsonNode node ? node.Deserialize(targetType) : rawValue;
 
-    private object? BuildRelationshipValue(RelationshipObject relationshipObject, RelationshipMetadata relationshipMetadata)
+    private object? BuildRelationshipValue(
+        RelationshipObject relationshipObject,
+        RelationshipMetadata relationshipMetadata,
+        IReadOnlyDictionary<(string Type, string Id), ResourceObject> lookup,
+        HashSet<(string Type, string Id)> visiting)
     {
         if (relationshipMetadata.Kind == RelationshipKind.ToMany)
         {
@@ -78,7 +116,7 @@ public sealed class ResourceMapper
 
             foreach (var identifier in relationshipObject.ManyData ?? new List<ResourceIdentifierObject>())
             {
-                list.Add(BuildStub(identifier, elementType));
+                list.Add(BuildRelatedInstance(identifier, elementType, lookup, visiting));
             }
 
             var propertyType = relationshipMetadata.Property.PropertyType;
@@ -100,25 +138,40 @@ public sealed class ResourceMapper
 
         return relationshipObject.SingleData is null
             ? null
-            : BuildStub(relationshipObject.SingleData, relationshipMetadata.RelatedClrType);
+            : BuildRelatedInstance(relationshipObject.SingleData, relationshipMetadata.RelatedClrType, lookup, visiting);
     }
 
-    private object BuildStub(ResourceIdentifierObject identifier, Type clrType)
+    private object BuildRelatedInstance(
+        ResourceIdentifierObject identifier,
+        Type clrType,
+        IReadOnlyDictionary<(string Type, string Id), ResourceObject> lookup,
+        HashSet<(string Type, string Id)> visiting)
     {
-        object instance;
+        var instance = CreateInstance(clrType);
+        var metadata = _resolver.Resolve(clrType);
+        metadata.IdProperty.SetValue(instance, ParseId(identifier.Id, metadata.IdProperty.PropertyType));
+
+        var key = (metadata.ResourceType, identifier.Id);
+        if (lookup.TryGetValue(key, out var fullResource) && visiting.Add(key))
+        {
+            MapOnto(fullResource, instance, lookup, visiting);
+            visiting.Remove(key);
+        }
+
+        return instance;
+    }
+
+    private static object CreateInstance(Type clrType)
+    {
         try
         {
-            instance = Activator.CreateInstance(clrType)!;
+            return Activator.CreateInstance(clrType)!;
         }
         catch (MissingMethodException ex)
         {
             throw new JsonApiMappingException(
                 $"Related type '{clrType.Name}' must have a public parameterless constructor to be used as a relationship stub.", ex);
         }
-
-        var metadata = _resolver.Resolve(clrType);
-        metadata.IdProperty.SetValue(instance, ParseId(identifier.Id, metadata.IdProperty.PropertyType));
-        return instance;
     }
 
     private static object ParseId(string id, Type idType)

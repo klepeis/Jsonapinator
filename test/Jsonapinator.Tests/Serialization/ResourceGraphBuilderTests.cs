@@ -32,6 +32,9 @@ public class ResourceGraphBuilderTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public string FirstName { get; set; } = "";
     }
 
     [JsonApiResource("comments")]
@@ -39,6 +42,12 @@ public class ResourceGraphBuilderTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public string Body { get; set; } = "";
+
+        [JsonApiRelationship("author", RelationshipKind.ToOne)]
+        public Person? Author { get; set; }
     }
 
     [JsonApiResource("guid-things")]
@@ -185,5 +194,112 @@ public class ResourceGraphBuilderTests
 
         Assert.True(document.Data!.IsCollection);
         Assert.Empty(document.Data.Collection!);
+    }
+
+    [Fact]
+    public void BuildCollectionDocument_with_include_paths_collects_included_resources_across_all_items()
+    {
+        var articles = new List<Article>
+        {
+            new() { Id = "1", Author = new Person { Id = "9", FirstName = "Dan" } },
+            new() { Id = "2", Author = new Person { Id = "10", FirstName = "Sam" } },
+        };
+
+        var document = _builder.BuildCollectionDocument(articles, new[] { "author" });
+
+        Assert.Equal(2, document.Included!.Count);
+    }
+
+    [Fact]
+    public void BuildDocument_with_include_paths_includes_the_related_resources_full_attributes()
+    {
+        var article = new Article { Id = "1", Author = new Person { Id = "9", FirstName = "Dan" } };
+
+        var document = _builder.BuildDocument(article, new[] { "author" });
+
+        var included = Assert.Single(document.Included!);
+        Assert.Equal("people", included.Type);
+        Assert.Equal("9", included.Id);
+        Assert.Equal("Dan", included.Attributes!["firstName"]);
+    }
+
+    [Fact]
+    public void BuildDocument_with_no_include_paths_leaves_included_null()
+    {
+        var document = _builder.BuildDocument(new Article { Id = "1", Author = new Person { Id = "9" } });
+
+        Assert.Null(document.Included);
+    }
+
+    [Fact]
+    public void BuildDocument_with_a_multi_level_include_path_includes_intermediate_and_leaf_resources()
+    {
+        var article = new Article
+        {
+            Id = "1",
+            Comments = new List<Comment>
+            {
+                new() { Id = "5", Author = new Person { Id = "9", FirstName = "Dan" } },
+            },
+        };
+
+        var document = _builder.BuildDocument(article, new[] { "comments.author" });
+
+        Assert.Equal(2, document.Included!.Count);
+        Assert.Contains(document.Included, r => r.Type == "comments" && r.Id == "5");
+        Assert.Contains(document.Included, r => r.Type == "people" && r.Id == "9");
+    }
+
+    [Fact]
+    public void BuildDocument_with_a_direct_to_many_include_path_includes_each_element()
+    {
+        var article = new Article
+        {
+            Id = "1",
+            Comments = new List<Comment> { new() { Id = "5" }, new() { Id = "12" } },
+        };
+
+        var document = _builder.BuildDocument(article, new[] { "comments" });
+
+        Assert.Equal(2, document.Included!.Count);
+    }
+
+    [Fact]
+    public void BuildDocument_dedups_a_resource_reachable_via_two_include_paths()
+    {
+        var author = new Person { Id = "9", FirstName = "Dan" };
+        var article = new Article
+        {
+            Id = "1",
+            Author = author,
+            Comments = new List<Comment> { new() { Id = "5", Author = author } },
+        };
+
+        var document = _builder.BuildDocument(article, new[] { "author", "comments.author" });
+
+        Assert.Single(document.Included!, r => r.Type == "people" && r.Id == "9");
+    }
+
+    [Fact]
+    public void BuildDocument_never_duplicates_the_primary_resource_into_included()
+    {
+        var article = new Article { Id = "1" };
+        article.Comments = new List<Comment> { new() { Id = "5" } };
+
+        var document = _builder.BuildDocument(article, new[] { "comments" });
+
+        Assert.DoesNotContain(document.Included!, r => r.Type == "articles" && r.Id == "1");
+    }
+
+    [Fact]
+    public void BuildDocument_throws_on_an_unknown_include_path_segment()
+    {
+        var article = new Article { Id = "1" };
+
+        var ex = Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(
+            () => _builder.BuildDocument(article, new[] { "publisher" }));
+
+        Assert.Contains("publisher", ex.Message);
+        Assert.Contains("articles", ex.Message);
     }
 }

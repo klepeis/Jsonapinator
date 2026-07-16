@@ -26,6 +26,9 @@ public class JsonApiSerializerTests
     {
         [JsonApiId]
         public string Id { get; set; } = "";
+
+        [JsonApiAttribute]
+        public string FirstName { get; set; } = "";
     }
 
     [JsonApiResource("bad-id")]
@@ -80,6 +83,45 @@ public class JsonApiSerializerTests
     }
 
     [Fact]
+    public void Serialize_with_Include_option_produces_an_included_array()
+    {
+        var article = new Article { Id = "1", Author = new Person { Id = "9", FirstName = "Dan" } };
+
+        var json = _serializer.Serialize(article, new JsonApiDocumentOptions { Include = new[] { "author" } });
+
+        var node = JsonNode.Parse(json)!;
+        var included = node["included"]!.AsArray();
+        Assert.Single(included);
+        Assert.Equal("Dan", included[0]!["attributes"]!["firstName"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Serialize_without_Include_option_has_no_included_member()
+    {
+        var article = new Article { Id = "1", Author = new Person { Id = "9", FirstName = "Dan" } };
+
+        var json = _serializer.Serialize(article);
+
+        var node = JsonNode.Parse(json)!;
+        Assert.False(node.AsObject().ContainsKey("included"));
+    }
+
+    [Fact]
+    public void SerializeCollection_with_Include_option_produces_an_included_array()
+    {
+        var articles = new List<Article>
+        {
+            new() { Id = "1", Author = new Person { Id = "9", FirstName = "Dan" } },
+            new() { Id = "2", Author = new Person { Id = "10", FirstName = "Sam" } },
+        };
+
+        var json = _serializer.SerializeCollection(articles, new JsonApiDocumentOptions { Include = new[] { "author" } });
+
+        var node = JsonNode.Parse(json)!;
+        Assert.Equal(2, node["included"]!.AsArray().Count);
+    }
+
+    [Fact]
     public void SerializeErrors_produces_an_errors_document()
     {
         var json = _serializer.SerializeErrors(new[] { new ErrorObject { Status = "422", Title = "Invalid" } });
@@ -87,6 +129,36 @@ public class JsonApiSerializerTests
         var node = JsonNode.Parse(json)!;
         Assert.False(node.AsObject().ContainsKey("data"));
         Assert.Equal("422", node["errors"]![0]!["status"]!.GetValue<string>());
+    }
+
+    [Fact]
+    public void Deserialize_hydrates_relationships_from_the_included_array()
+    {
+        var json = """
+            {"data":{"type":"articles","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+             "included":[{"type":"people","id":"9","attributes":{"firstName":"Dan"}}]}
+            """;
+
+        var article = _serializer.Deserialize<Article>(json);
+
+        Assert.Equal("Dan", article.Author!.FirstName);
+    }
+
+    [Fact]
+    public void DeserializeCollection_hydrates_relationships_shared_across_primary_resources_from_included()
+    {
+        var json = """
+            {"data":[
+                {"type":"articles","id":"1","relationships":{"author":{"data":{"type":"people","id":"9"}}}},
+                {"type":"articles","id":"2","relationships":{"author":{"data":{"type":"people","id":"9"}}}}
+             ],
+             "included":[{"type":"people","id":"9","attributes":{"firstName":"Dan"}}]}
+            """;
+
+        var articles = _serializer.DeserializeCollection<Article>(json);
+
+        Assert.Equal("Dan", articles[0].Author!.FirstName);
+        Assert.Equal("Dan", articles[1].Author!.FirstName);
     }
 
     [Fact]

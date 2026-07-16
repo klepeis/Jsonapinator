@@ -9,6 +9,8 @@ public sealed class JsonApiDocument
 {
     public JsonApiDocumentData? Data { get; set; }
 
+    public List<ResourceObject>? Included { get; set; }
+
     public List<ErrorObject>? Errors { get; set; }
 
     public MetaObject? Meta { get; set; }

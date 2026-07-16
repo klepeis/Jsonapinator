@@ -19,6 +19,17 @@ public sealed class JsonApiDocumentWriter : IJsonApiWriter
             root["data"] = WriteData(document.Data);
         }
 
+        if (document.Included is not null)
+        {
+            var included = new JsonArray();
+            foreach (var resource in document.Included)
+            {
+                included.Add(WriteResource(resource));
+            }
+
+            root["included"] = included;
+        }
+
         if (document.Errors is not null)
         {
             var errors = new JsonArray();

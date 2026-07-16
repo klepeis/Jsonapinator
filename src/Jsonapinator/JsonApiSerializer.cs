@@ -34,14 +34,18 @@ public sealed class JsonApiSerializer
 
     public string Serialize<T>(T resource, JsonApiDocumentOptions? options = null) where T : notnull
     {
-        var document = BuildDocument(resource);
+        var document = options?.Include is { } includePaths
+            ? _graphBuilder.BuildDocument(resource, includePaths)
+            : BuildDocument(resource);
         ApplyOptions(document, options);
         return _writer.Write(document);
     }
 
     public string SerializeCollection<T>(IEnumerable<T> resources, JsonApiDocumentOptions? options = null) where T : notnull
     {
-        var document = _graphBuilder.BuildCollectionDocument(resources);
+        var document = options?.Include is { } includePaths
+            ? _graphBuilder.BuildCollectionDocument(resources, includePaths)
+            : _graphBuilder.BuildCollectionDocument(resources);
         ApplyOptions(document, options);
         return _writer.Write(document);
     }
@@ -52,17 +56,20 @@ public sealed class JsonApiSerializer
     public T Deserialize<T>(string json) where T : new()
     {
         var document = ParseDocument(json);
-        return _mapper.Map<T>(document.Data!.Single!);
+        return _mapper.Map<T>(document.Data!.Single!, document.Included);
     }
 
     public IReadOnlyList<T> DeserializeCollection<T>(string json) where T : new()
     {
         var document = ParseDocument(json);
-        return document.Data!.Collection!.Select(_mapper.Map<T>).ToList();
+        return document.Data!.Collection!.Select(resource => _mapper.Map<T>(resource, document.Included)).ToList();
     }
 
     public JsonApiDocument BuildDocument<T>(T resource) where T : notnull =>
         _graphBuilder.BuildDocument(resource);
+
+    public JsonApiDocument BuildDocument<T>(T resource, IEnumerable<string>? includePaths) where T : notnull =>
+        _graphBuilder.BuildDocument(resource, includePaths);
 
     public JsonApiDocument ParseDocument(string json) => _reader.Read(json);
 
