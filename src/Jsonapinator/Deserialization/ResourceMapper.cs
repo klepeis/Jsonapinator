@@ -74,7 +74,8 @@ public sealed class ResourceMapper
             {
                 if (resource.Attributes.TryGetValue(attribute.JsonName, out var rawValue))
                 {
-                    attribute.Property.SetValue(target, ConvertAttributeValue(rawValue, attribute.Property.PropertyType));
+                    attribute.Property.SetValue(
+                        target, ConvertAttributeValue(rawValue, attribute.Property.PropertyType, attribute.JsonName));
                 }
             }
         }
@@ -148,8 +149,23 @@ public sealed class ResourceMapper
         return lookup;
     }
 
-    private static object? ConvertAttributeValue(object? rawValue, Type targetType) =>
-        rawValue is JsonNode node ? node.Deserialize(targetType) : rawValue;
+    private static object? ConvertAttributeValue(object? rawValue, Type targetType, string attributeName)
+    {
+        if (rawValue is not JsonNode node)
+        {
+            return rawValue;
+        }
+
+        try
+        {
+            return node.Deserialize(targetType, NestedValueSerialization.CamelCase);
+        }
+        catch (JsonException ex)
+        {
+            throw new JsonApiMappingException(
+                $"Attribute '{attributeName}' could not be converted to type '{targetType.Name}'.", ex);
+        }
+    }
 
     private object? BuildRelationshipValue(
         RelationshipObject relationshipObject,

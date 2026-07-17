@@ -202,6 +202,16 @@ public class ResourceTypeResolverTests
         public double Id { get; set; }
     }
 
+    [JsonApiResource("duplicate-id")]
+    private sealed class DuplicateIdAttribute
+    {
+        [JsonApiId]
+        public string FirstId { get; set; } = "";
+
+        [JsonApiId]
+        public string SecondId { get; set; } = "";
+    }
+
     [JsonApiResource("guid-ids")]
     private sealed class GuidIdResource
     {
@@ -320,6 +330,15 @@ public class ResourceTypeResolverTests
         var resolver = new ResourceTypeResolver();
 
         Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(UnsupportedIdType)));
+    }
+
+    [Fact]
+    public void Resolve_throws_JsonApiMappingException_not_InvalidOperationException_when_JsonApiId_is_duplicated()
+    {
+        var resolver = new ResourceTypeResolver();
+
+        var ex = Assert.Throws<JsonApiMappingException>(() => resolver.Resolve(typeof(DuplicateIdAttribute)));
+        Assert.Contains(nameof(DuplicateIdAttribute), ex.Message);
     }
 
     [Theory]

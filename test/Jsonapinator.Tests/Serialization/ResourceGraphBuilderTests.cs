@@ -39,6 +39,16 @@ public class ResourceGraphBuilderTests
 
         [JsonApiRelationshipLinks("comments")]
         public LinksObject? CommentsLinks { get; set; }
+
+        [JsonApiAttribute]
+        public ArticleSeo? Seo { get; set; }
+    }
+
+    private sealed class ArticleSeo
+    {
+        public string MetaTitle { get; set; } = "";
+
+        public string MetaDescription { get; set; } = "";
     }
 
     [JsonApiResource("people")]
@@ -538,9 +548,32 @@ public class ResourceGraphBuilderTests
 
         var resource = _builder.BuildResource(holder);
 
-        var shapeNode = Assert.IsAssignableFrom<JsonNode>(resource.Attributes!["featuredShape"]);
+        var shapeNode = Assert.IsAssignableFrom<JsonObject>(resource.Attributes!["featuredShape"]);
         Assert.Equal("circle", shapeNode["$type"]!.GetValue<string>());
-        Assert.Equal(5, shapeNode["Radius"]!.GetValue<double>());
+        Assert.Equal(5, shapeNode["radius"]!.GetValue<double>());
+        // JsonObject's indexer is case-insensitive, so assert on the real key directly too --
+        // this is the actual regression check for nested attribute values being camelCased.
+        Assert.Contains("radius", shapeNode.Select(kv => kv.Key));
+        Assert.DoesNotContain("Radius", shapeNode.Select(kv => kv.Key));
+    }
+
+    [Fact]
+    public void Write_camelCases_a_nested_non_polymorphic_attribute_values_own_properties()
+    {
+        var article = new Article
+        {
+            Id = "1",
+            Seo = new ArticleSeo { MetaTitle = "Title", MetaDescription = "Description" },
+        };
+
+        var document = _builder.BuildDocument(article);
+        var json = new JsonApiDocumentWriter().Write(document);
+
+        var seoNode = Assert.IsType<JsonObject>(JsonNode.Parse(json)!["data"]!["attributes"]!["seo"]);
+        Assert.Equal("Title", seoNode["metaTitle"]!.GetValue<string>());
+        Assert.Equal("Description", seoNode["metaDescription"]!.GetValue<string>());
+        Assert.Contains("metaTitle", seoNode.Select(kv => kv.Key));
+        Assert.DoesNotContain("MetaTitle", seoNode.Select(kv => kv.Key));
     }
 
     [Fact]

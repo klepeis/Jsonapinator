@@ -23,6 +23,13 @@ public static class JsonApiMvcBuilderExtensions
     /// </summary>
     public static IMvcBuilder AddJsonApi(this IMvcBuilder builder, Action<JsonApiFormatterOptions>? configure = null)
     {
+        // Idempotency guard: a second call (e.g. a shared ConfigureServices helper invoked twice)
+        // is a no-op instead of double-registering the formatters/singletons/exception handler.
+        if (builder.Services.Any(d => d.ServiceType == typeof(JsonApiFormatterOptions)))
+        {
+            return builder;
+        }
+
         var options = new JsonApiFormatterOptions();
         configure?.Invoke(options);
 

@@ -22,10 +22,6 @@ larger feature work with no forcing function yet.
 |---|---|---|
 | **P0** | [`JsonApiDocumentReader` raw exceptions on malformed `"type"`/`"id"`/array elements](#security-considerations) | Directly on the untrusted-input deserialize path; throws framework exceptions instead of `JsonApiMappingException`, inconsistent with the library's own error contract. Moderate effort (wrap the existing null-forgiving/hard-cast sites). |
 | **P0** | [Shape-mismatched body → 500, not 400](#jsonapinatoraspnetcore--deferred-concerns) (`Deserialize`/`DeserializeCollection`, all 4 call sites) | High likelihood — any client sending an array where a single resource is expected (or vice versa) hits this. Moderate effort, all 4 sites share the same fix shape. |
-| **P1** | [`[JsonApiId]` duplicate → confusing `InvalidOperationException`](#correctnessrobustness-gaps) | Cheap, isolated fix (replace `SingleOrDefault` with an explicit check) that meaningfully improves a developer-facing error message. |
-| **P1** | [No wrapping around `GetValue`/`SetValue`/`JsonNode.Deserialize` type-mismatch failures](#correctnessrobustness-gaps) | Common real-world case (client sends a wrong-typed attribute) currently surfaces the wrong exception type. Moderate effort — needs a try/catch per call site with a clear message. |
-| **P1** | [Nested attribute values aren't camelCased](#correctnessrobustness-gaps) | Visible, easy-to-hit inconsistency (confirmed via the samples) between an attribute's own key and its nested content. Likely a one-line fix (pass camelCase `JsonSerializerOptions` into `SerializeToNode`). |
-| **P1** | [`AddJsonApi()` has no idempotency guard against being called twice](#jsonapinatoraspnetcore--deferred-concerns) | Low likelihood but a cheap guard (throw or no-op) removes a confusing double-registration failure mode entirely. |
 | **P2** | [`WalkIncludes` linear relationship-by-name scan](#performance-considerations) / [`IsRelationshipTarget` redundant reflection](#performance-considerations) | Real but only matters at scale (large included graphs / wide object models). Moderate effort — index `ResourceMetadata.Relationships` by name; share the classify/build reflection pass. |
 | **P2** | [`JsonApiInputFormatter` fully buffers the request body](#security-considerations) (no streaming) | Real perf/memory concern under load, but a genuine rewrite (stream-based parsing) rather than a small patch — bigger effort than the P0 size-cap mitigation, which is the cheaper interim fix for the same risk. |
 | **P2** | [Cycle-truncated relationships are an undocumented contract](#correctnessrobustness-gaps) | Docs-only fix — add one sentence to `compound-documents.md` about the id-only-stub fallback on cycles. Trivial effort, do it opportunistically. |
@@ -114,11 +110,11 @@ format conversion. Deferred from that pass, not yet built:
   formatter always constructs a fresh instance (`ResourceMapper.Map`/`CreateInstance`); true
   presence-based partial updates onto an already-loaded entity require calling
   `ResourceMapper.MapOnto` manually via the escape hatch, which isn't documented today.
-- **No idempotency guard if `AddJsonApi()` is called twice** on the same `IMvcBuilder` — would
-  double-register the input/output formatters, the `JsonApiSerializer`/`JsonApiFormatterOptions`
-  DI singletons, the exception handler, and wrap `InvalidModelStateResponseFactory` in a second,
-  harmless-but-confusing layer of delegation. Low likelihood (an unusual consumer mistake, e.g. a
-  shared `ConfigureServices` helper invoked twice), medium impact if it happens.
+- ~~**No idempotency guard if `AddJsonApi()` is called twice**~~ — **done.** A second call on the
+  same `IMvcBuilder` is now a no-op (checked via whether `JsonApiFormatterOptions` is already
+  registered) instead of double-registering the input/output formatters, the
+  `JsonApiSerializer`/`JsonApiFormatterOptions` DI singletons, the exception handler, and wrapping
+  `InvalidModelStateResponseFactory` in a second layer of delegation.
 
 ## Security considerations
 
@@ -149,9 +145,9 @@ Findings from a broad code review (2026-07), documentation only — no code chan
   array all throw raw `NullReferenceException`/`InvalidCastException`/`InvalidOperationException`
   instead of `JsonApiMappingException`. Inconsistent with the library's own error contract, not
   just a correctness nit, since it's directly on the deserialize entry point for untrusted input.
-- **No idempotency guard against calling `AddJsonApi()` twice** (see the ASP.NET Core deferred
-  concerns above) — flagged here too since double-registered exception handlers could, in an edge
-  case, attempt to write to an already-started response.
+- ~~**No idempotency guard against calling `AddJsonApi()` twice**~~ — **done** (see the ASP.NET
+  Core deferred concerns above) — closes the edge case where double-registered exception handlers
+  could attempt to write to an already-started response.
 - **Positive finding, worth preserving (updated)**: reflection in both `ResourceTypeResolver` and
   `ConventionResourceTypeResolver` only ever operates on CLR types supplied by the consumer's own
   code — never an arbitrary type name taken from the wire (`ResourceMapper.Map`/`Map(Type, ...)`
@@ -196,27 +192,31 @@ Findings from a broad code review (2026-07), documentation only — no code chan
 
 ## Correctness/robustness gaps
 
-- `ResourceTypeResolver`'s `properties.SingleOrDefault(p => p.IsDefined(typeof(JsonApiIdAttribute)))`
-  throws a generic LINQ `InvalidOperationException` ("Sequence contains more than one matching
-  element") instead of the library's own descriptive `JsonApiMappingException` when a type
-  mistakenly has two `[JsonApiId]` properties.
-- No wrapping around reflection `GetValue`/`SetValue` calls or `JsonNode.Deserialize` type-mismatch
-  failures in `ResourceMapper.MapOnto`/`ConvertAttributeValue` — a client sending a wrong-typed
-  attribute value (e.g. a JSON string where an `int` is expected) surfaces a raw `JsonException`/
-  `InvalidOperationException` rather than `JsonApiMappingException`.
+- ~~`ResourceTypeResolver`'s `properties.SingleOrDefault(p => p.IsDefined(typeof(JsonApiIdAttribute)))`
+  throws a generic LINQ `InvalidOperationException`~~ — **done.** Replaced with an explicit
+  `.Where(...).ToList()` + `Count > 1` check (matching the pattern already used by
+  `FindSingleTypedProperty`/`FindRelationshipTypedProperty` in the same file), throwing
+  `JsonApiMappingException` when a type mistakenly has two `[JsonApiId]` properties.
+- ~~No wrapping around reflection `GetValue`/`SetValue` calls or `JsonNode.Deserialize`
+  type-mismatch failures~~ — **done.** `ResourceMapper.ConvertAttributeValue` now wraps
+  `node.Deserialize(...)` in a try/catch, rethrowing `JsonException` as `JsonApiMappingException`
+  naming the offending attribute — a client sending a wrong-typed attribute value (e.g. a JSON
+  string where an `int` is expected) now gets the library's own error contract instead of a raw
+  `JsonException`.
 - `JsonApiInvalidModelStateResponseFactory.ToAttributePointer` produces misleading pointers (not
   just "imprecise," and not only for the already-documented indexed-key case, e.g.
   `"Comments[0].Body"`) for dotted nested-binding keys (`"Author.Name"` → `/data/attributes/author.name`,
   not a real attribute path) and binder-prefixed keys (`"$.Title"`/`"model.Title"`).
-- **Nested object/array attribute values aren't camelCased.** Confirmed via the samples: a
-  top-level attribute like `Title` correctly becomes JSON key `"title"`, but a nested object
-  attribute's own properties (e.g. `ArticleSeo { MetaTitle, MetaDescription }` on the `Seo`
-  attribute) serialize with their raw PascalCase C# names (`"MetaTitle"`) instead of camelCase,
-  since `ResourceGraphBuilder`/`JsonApiDocumentWriter` serialize attribute *values* via
-  `JsonSerializer.SerializeToNode(value, value.GetType())` with default `JsonSerializerOptions`
-  (no camelCase naming policy applied), while the attribute *key itself* goes through
-  `PropertyNaming.ToCamelCase` separately. Inconsistent casing between an attribute's own key and
-  its nested content.
+- ~~**Nested object/array attribute values aren't camelCased.**~~ — **done.**
+  `ResourceGraphBuilder.BuildAttributeValue`, `JsonApiDocumentWriter.WriteResource`'s attribute
+  loop, and `ResourceMapper.ConvertAttributeValue` now all use the shared
+  `NestedValueSerialization.CamelCase` (`PropertyNamingPolicy = JsonNamingPolicy.CamelCase`,
+  `PropertyNameCaseInsensitive = true`) instead of default options — a nested object attribute's
+  own properties (e.g. `ArticleSeo { MetaTitle, MetaDescription }`) now serialize/deserialize
+  camelCased, consistent with the attribute's own key. Case-insensitive read means documents
+  already written with the old PascalCase nested keys still deserialize correctly. Also applies to
+  the polymorphic single-valued/collection-valued attribute paths (see `_docs/polymorphism.md`)
+  for the same consistency.
 - Cycle-truncated relationships in compound-document hydration silently fall back to id-only stubs
   with no signal to the consumer that hydration was cut short — a reasonable design choice, but
   currently undocumented as an explicit contract.

@@ -38,6 +38,16 @@ public class ResourceMapperTests
 
         [JsonApiRelationshipLinks("comments")]
         public LinksObject? CommentsLinks { get; set; }
+
+        [JsonApiAttribute]
+        public ArticleSeo? Seo { get; set; }
+    }
+
+    private sealed class ArticleSeo
+    {
+        public string MetaTitle { get; set; } = "";
+
+        public string MetaDescription { get; set; } = "";
     }
 
     [JsonApiResource("people")]
@@ -213,6 +223,47 @@ public class ResourceMapperTests
 
         Assert.Equal("Only Title Changed", article.Title);
         Assert.Equal(-1, article.WordCount);
+    }
+
+    [Fact]
+    public void Map_throws_JsonApiMappingException_not_a_raw_JsonException_for_a_wrong_typed_attribute()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","attributes":{"wordCount":"not-a-number"}}}
+            """);
+
+        var ex = Assert.Throws<Jsonapinator.Exceptions.JsonApiMappingException>(() => _mapper.Map<Article>(resource));
+        Assert.Contains("wordCount", ex.Message);
+    }
+
+    [Fact]
+    public void Map_reads_a_camelCased_nested_attribute_value()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","attributes":{
+                "seo":{"metaTitle":"Title","metaDescription":"Description"}
+            }}}
+            """);
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Equal("Title", article.Seo!.MetaTitle);
+        Assert.Equal("Description", article.Seo.MetaDescription);
+    }
+
+    [Fact]
+    public void Map_reads_a_pre_existing_PascalCased_nested_attribute_value_for_backward_compatibility()
+    {
+        var resource = ReadResource("""
+            {"data":{"type":"articles","id":"1","attributes":{
+                "seo":{"MetaTitle":"Title","MetaDescription":"Description"}
+            }}}
+            """);
+
+        var article = _mapper.Map<Article>(resource);
+
+        Assert.Equal("Title", article.Seo!.MetaTitle);
+        Assert.Equal("Description", article.Seo.MetaDescription);
     }
 
     [Fact]

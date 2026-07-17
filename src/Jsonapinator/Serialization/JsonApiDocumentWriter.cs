@@ -92,7 +92,7 @@ public sealed class JsonApiDocumentWriter : IJsonApiWriter
                 {
                     null => null,
                     JsonNode alreadyNode => alreadyNode,
-                    _ => JsonSerializer.SerializeToNode(value, value.GetType()),
+                    _ => JsonSerializer.SerializeToNode(value, value.GetType(), NestedValueSerialization.CamelCase),
                 };
             }
 

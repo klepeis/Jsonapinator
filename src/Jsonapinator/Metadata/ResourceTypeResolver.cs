@@ -31,7 +31,15 @@ public sealed class ResourceTypeResolver : IResourceTypeResolver
 
         var properties = clrType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
-        var idProperty = properties.SingleOrDefault(p => p.IsDefined(typeof(JsonApiIdAttribute)))
+        var idCandidates = properties.Where(p => p.IsDefined(typeof(JsonApiIdAttribute))).ToList();
+        if (idCandidates.Count > 1)
+        {
+            throw new JsonApiMappingException(
+                $"Type '{clrType.Name}' has {idCandidates.Count} properties decorated with " +
+                "[JsonApiId]; exactly one is required.");
+        }
+
+        var idProperty = idCandidates.SingleOrDefault()
             ?? throw new JsonApiMappingException(
                 $"Type '{clrType.Name}' must have exactly one property decorated with [JsonApiId].");
 

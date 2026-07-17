@@ -57,6 +57,38 @@ public class JsonApiMvcBuilderExtensionsTests
     }
 
     [Fact]
+    public void AddJsonApi_called_twice_registers_the_formatters_only_once()
+    {
+        var services = new ServiceCollection();
+        var builder = services.AddControllers();
+        builder.AddJsonApi();
+        builder.AddJsonApi();
+        var provider = services.BuildServiceProvider();
+
+        var mvcOptions = provider.GetRequiredService<IOptions<MvcOptions>>().Value;
+        Assert.Single(mvcOptions.OutputFormatters, f => f is JsonApiOutputFormatter);
+        Assert.Single(mvcOptions.InputFormatters, f => f is JsonApiInputFormatter);
+        Assert.Single(services, d => d.ServiceType == typeof(JsonApiSerializer));
+        Assert.Single(services, d => d.ServiceType == typeof(JsonApiFormatterOptions));
+    }
+
+    [Fact]
+    public void AddJsonApi_second_call_does_not_apply_a_different_configuration()
+    {
+        var services = new ServiceCollection();
+        var builder = services.AddControllers();
+        builder.AddJsonApi();
+        builder.AddJsonApi(o => o.UseAttributes());
+        var provider = services.BuildServiceProvider();
+        var serializer = provider.GetRequiredService<JsonApiSerializer>();
+
+        // Still convention-based (the first call's config) -- the second call is a no-op, proving
+        // it doesn't silently reconfigure an already-registered JsonApiSerializer.
+        var json = serializer.Serialize(new PlainArticle { Id = "1", Title = "Hello" });
+        Assert.Contains("\"title\":\"Hello\"", json);
+    }
+
+    [Fact]
     public void AddJsonApi_registers_a_JsonApiSerializer_singleton()
     {
         var services = new ServiceCollection();

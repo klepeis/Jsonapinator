@@ -109,7 +109,7 @@ public sealed class ResourceGraphBuilder
         var rawValue = attribute.Property.GetValue(resource);
 
         return attribute.IsPolymorphic && rawValue is not null
-            ? JsonSerializer.SerializeToNode(rawValue, attribute.Property.PropertyType)
+            ? JsonSerializer.SerializeToNode(rawValue, attribute.Property.PropertyType, NestedValueSerialization.CamelCase)
             : rawValue;
     }
 
